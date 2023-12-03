@@ -28,6 +28,7 @@ render_pass_uniform_data := cg.Render_Pass_Uniforms {
 instance_uniform_data : cg.Instance_Uniforms
 
 engine              : cal.Engine_Context
+render_pass         : cg.Render_Pass
 
 geo_meshes          : []cg.Mesh
 // matcap_shader       : cg.Shader
@@ -59,6 +60,10 @@ run_app :: proc() -> (ok: bool) {
     
     cal.init(&engine) or_return
     defer cal.shutdown(&engine)
+
+    rp_desc := cg.render_pass_description_forward()
+    render_pass = cg.create_render_pass(&rp_desc) or_return
+    defer cg.destroy_render_pass(render_pass)
 
 
     // Load mesh assets
@@ -173,11 +178,11 @@ run_app :: proc() -> (ok: bool) {
     // Create camera
     // /////////////
 
-    t := linalg.matrix4_translate_f32({0, -10, 0})
-    r := linalg.matrix4_rotate_f32(delta_time, {0, 0, 1}) 
     
     aspect_ratio := f32(config.WINDOW_WIDTH) / f32(config.WINDOW_HEIGHT)
-
+    
+    t := linalg.matrix4_translate_f32({0, -10, 0})
+    r := linalg.matrix4_rotate_f32(delta_time, {0, 0, 1}) 
     render_pass_uniform_data.view = linalg.matrix4_inverse_f32(t)
     // render_pass_uniform_data.proj = cg.matrix4_orthographic(4, aspect_ratio, 0.1, 100)
     render_pass_uniform_data.proj = cg.matrix4_perspective(linalg.RAD_PER_DEG * 50, aspect_ratio, 0.1, 100)
@@ -202,20 +207,26 @@ run_app :: proc() -> (ok: bool) {
     return true
 }
 
-spin := 0
+spin: f32
 
 loop :: proc() {
     debug.profile_scope()
+   
+    spin += delta_time
+    t := linalg.matrix4_translate_f32({0, -10, 0})
+    r := linalg.matrix4_rotate_f32(spin, {0, 0, 1}) 
+    render_pass_uniform_data.view = linalg.matrix4_inverse_f32(r * t) // spin the camera around the world origin
+    render_pass_uniform_data.viewproj = render_pass_uniform_data.proj * render_pass_uniform_data.view
     
 
     // cg.upload_uniforms_material(matcap_material, &geo_uniform_data)
-
-    cg.upload_uniforms_render_pass(/*render_pass,*/ &render_pass_uniform_data)
+    
+    cg.upload_uniforms_render_pass(render_pass, &render_pass_uniform_data)
 
 
     cg.cmd_begin_graphics()
-    cg.cmd_bind_uniforms_render_pass(/*render_pass*/)
-    cg.cmd_begin_render_pass()
+    cg.cmd_bind_uniforms_render_pass(render_pass)
+    cg.cmd_begin_render_pass(render_pass)
     
         cg.cmd_bind_shader(opaque_shader)
         // cg.cmd_bind_uniforms_material()
