@@ -158,6 +158,7 @@ run_app :: proc() -> (ok: bool) {
     frag_data := os.read_entire_file_from_filename("callisto/resources/shaders/opaque.frag.spv") or_return
 
     opaque_shader_desc := cg.Shader_Description {
+        render_pass                 = render_pass,
         vertex_shader_data          = vert_data,
         fragment_shader_data        = frag_data,
         cull_mode                   = .Back,
