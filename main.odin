@@ -45,33 +45,35 @@ run_app :: proc() -> (res: cg.Result) {
   
     // Create engine
     // /////////////
-    renderer_create_info := cal.Renderer_Create_Info {
-        // resolution?
-        // vsync?
-        // anti-aliasing? 
-        // these can be changed without rebuilding the entire renderer though
-        // Maybe loaded from persistent user storage? Appdata, etc.
+    display_desc := cal.Display_Description {
+        vsync         = .Triple_Buffer,
+        fullscreen    = .Windowed,
+        window_width  = 1024,
+        window_height = 768,
     }
 
-    engine_create_info := cal.Engine_Create_Info {
-        renderer_create_info = &renderer_create_info, // submit nil for headless?
-        // tick callback proc pointer?
+    renderer_desc := cal.Renderer_Description {}
+
+    engine_desc := cal.Engine_Description {
+        display_description  = &display_desc,
+        renderer_description = &renderer_desc,
+        update_proc          = loop,
     }
 
-    engine = cal.create(&engine_create_info) or_return
+    engine = cal.create(&engine_desc) or_return
     defer cal.destroy(&engine)
-    cal.run(&engine)
     // /////////////
+
+    cal.run(&engine) // Blocks until game is exited
 
     return .Ok
 }
 
-spin: f32
 
-loop :: proc() {
+loop :: proc(ctx: ^cal.Engine) {
     debug.profile_scope()
     
-    // log.infof("{:2.6f} : {:i}fps", delta_time, int(1 / delta_time))
+    // log.infof("{:2.6f} : {:i}fps", ctx.time.delta, int(1 / ctx.time.delta))
     // log.info(input.get_key(.Space))
 
 }
