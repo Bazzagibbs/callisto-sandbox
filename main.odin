@@ -45,6 +45,12 @@ run_app :: proc() -> (res: cg.Result) {
   
     // Create engine
     // /////////////
+    app_desc := cal.Application_Description {
+        name = "Callisto Sandbox",
+        company = "BazzaGibbs",
+        version = {0, 0, 1},
+    }
+
     display_desc := cal.Display_Description {
         vsync         = .Triple_Buffer,
         fullscreen    = .Windowed,
@@ -55,9 +61,10 @@ run_app :: proc() -> (res: cg.Result) {
     renderer_desc := cal.Renderer_Description {}
 
     engine_desc := cal.Engine_Description {
-        display_description  = &display_desc,
-        renderer_description = &renderer_desc,
-        update_proc          = loop,
+        application_description = &app_desc,
+        display_description     = &display_desc,
+        renderer_description    = &renderer_desc,
+        update_proc             = loop,
     }
 
     engine = cal.create(&engine_desc) or_return
@@ -74,7 +81,7 @@ loop :: proc(ctx: ^cal.Engine) {
     debug.profile_scope()
     
     // log.infof("{:2.6f} : {:i}fps", ctx.time.delta, int(1 / ctx.time.delta))
-    // log.info(input.get_key(.Space))
+    // log.info(input.get_key(engine.input, .Space))
 
 }
 
