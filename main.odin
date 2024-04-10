@@ -86,7 +86,7 @@ loop :: proc(ctx: ^cal.Engine) {
     
     // log.infof("{:2.6f} : {:i}fps", ctx.time.delta, int(1 / ctx.time.delta))
     // log.info(input.get_key(ctx.input, .Space))
-    color.g += 0.0001
+    color.g += ctx.time.delta * 0.1
     if color.g > 1 {
         color.g = 0
     }
