@@ -13,6 +13,8 @@ import "callisto/config"
 import "callisto/asset"
 import "callisto/debug"
 
+vec4 :: cal.vec4
+
 // Temp frame timer
 frame_stopwatch: time.Stopwatch = {}
 delta_time: f32 = {}
@@ -77,11 +79,17 @@ run_app :: proc() -> (res: cg.Result) {
 }
 
 
+color := vec4{0, 1, 0, 1}
+
 loop :: proc(ctx: ^cal.Engine) {
     debug.profile_scope()
     
     // log.infof("{:2.6f} : {:i}fps", ctx.time.delta, int(1 / ctx.time.delta))
-    // log.info(input.get_key(engine.input, .Space))
-
+    // log.info(input.get_key(ctx.input, .Space))
+    color.g += 0.0001
+    if color.g > 1 {
+        color.g = 0
+    }
+    cg.cmd_graphics_clear(ctx.renderer, color)
 }
 
