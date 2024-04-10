@@ -79,14 +79,14 @@ run_app :: proc() -> (res: cg.Result) {
 }
 
 
-color := vec4{0, 1, 0, 1}
+color := vec4{0, 1, 0.5, 1}
 
 loop :: proc(ctx: ^cal.Engine) {
     debug.profile_scope()
     
     // log.infof("{:2.6f} : {:i}fps", ctx.time.delta, int(1 / ctx.time.delta))
     // log.info(input.get_key(ctx.input, .Space))
-    color.g += ctx.time.delta * 0.1
+    color.g += ctx.time.delta
     if color.g > 1 {
         color.g = 0
     }
