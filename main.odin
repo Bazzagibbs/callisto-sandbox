@@ -56,8 +56,7 @@ run_app :: proc() -> (res: cg.Result) {
     display_desc := cal.Display_Description {
         vsync         = .Triple_Buffer,
         fullscreen    = .Windowed,
-        window_width  = 1024,
-        window_height = 768,
+        window_extent = {1024, 768},
     }
 
     renderer_desc := cal.Renderer_Description {}
