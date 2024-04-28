@@ -72,6 +72,20 @@ run_app :: proc() -> (res: cg.Result) {
     defer cal.destroy(&engine)
     // /////////////
 
+
+    // WIP: Shaders
+    // ============
+    r := engine.renderer
+
+    shader_desc := cg.Gpu_Shader_Description {
+        layout = {
+            {0, .Storage_Image},
+        },
+    }
+    shader := cg.gpu_shader_create(r, &shader_desc) or_return
+    defer cg.gpu_shader_destroy(r, shader)
+    // ============
+
     cal.run(&engine) // Blocks until game is exited
 
     return .Ok
