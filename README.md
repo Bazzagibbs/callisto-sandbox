@@ -8,7 +8,7 @@ A sandbox project for the development of the [Callisto Engine](https://github.co
 2. Install a [Vulkan SDK](https://vulkan.lunarg.com/)
 3. Clone this repository:
 ```sh
-git clone --recursive https://github.com/Bazzas-Personal-Stuff/callisto-sandbox.git
+git clone --recursive https://github.com/Bazzagibbs/callisto-sandbox.git
 ```
 - If you have already cloned without `--recursive`, the required submodules can be updated with: 
 ```sh
