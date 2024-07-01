@@ -78,7 +78,7 @@ run_app :: proc() -> (res: cg.Result) {
     r := engine.renderer
 
     shader_desc := cg.Gpu_Shader_Description {
-        layout = {
+        bindings = {
             {0, .Storage_Image},
         },
     }
