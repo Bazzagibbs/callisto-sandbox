@@ -77,13 +77,20 @@ run_app :: proc() -> (res: cg.Result) {
     // ============
     r := engine.renderer
 
-    shader_desc := cg.Gpu_Shader_Description {
-        bindings = {
-            {0, .Storage_Image},
+    // This will be parsed from the shader asset or generated code
+    shader_desc := cg.Shader_Description {
+        stage         = .Fragment,
+        program       = {}, // Load from asset
+        resource_sets = {
+            { // Set 0
+                bindings = {
+                    {0, .Storage_Image},
+                },
+            },
         },
     }
-    shader := cg.gpu_shader_create(r, &shader_desc) or_return
-    defer cg.gpu_shader_destroy(r, shader)
+    shader := cg.shader_create(r, &shader_desc) or_return
+    defer cg.shader_destroy(r, shader)
     // ============
 
     cal.run(&engine) // Blocks until game is exited
