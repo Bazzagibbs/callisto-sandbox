@@ -1,11 +1,13 @@
 package callisto_sandbox
 
+import "base:runtime"
 import "core:log"
 import "core:time"
 import "core:mem"
 import "core:math/linalg"
 import "core:math"
 import "core:os"
+import "core:fmt"
 import cal "callisto"
 
 Game_Memory :: struct {
@@ -28,9 +30,9 @@ callisto_runner_callbacks :: proc() -> cal.Runner_Callbacks {
 
 // ==================================
 
-cal_memory_init :: proc() -> rawptr {
+cal_memory_init :: proc() -> (game_mem: rawptr, ctx: runtime.Context) {
         g_mem = new(Game_Memory)
-        return g_mem
+        return g_mem, {}
 }
 
 cal_memory_load :: proc(game_mem: rawptr) {
@@ -64,6 +66,15 @@ cal_game_render :: proc() -> cal.Runner_Control {
         // poll_input()
         // simulate()
         // draw()
+
+        // Change this to test hot reloading
+        if g_mem.frame_count % 60 == 0 {
+                fmt.println(g_mem.frame_count)
+        }
+
+        g_mem.frame_count += 1
+        time.accurate_sleep(time.Second / 60)
+
 
         // Can shut down or reset game by returning .Shutdown, .Reset_Soft, .Reset_Hard
         return .Ok
