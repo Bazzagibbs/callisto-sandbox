@@ -73,7 +73,7 @@ cal_game_render :: proc() -> cal.Runner_Control {
         }
 
         g_mem.frame_count += 1
-        time.accurate_sleep(time.Second / 60)
+        time.accurate_sleep(time.Second / 240)
 
 
         // Can shut down or reset game by returning .Shutdown, .Reset_Soft, .Reset_Hard
