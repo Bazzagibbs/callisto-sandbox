@@ -3,6 +3,6 @@
 *.sublime-*
 /out/
 
-ols.json
+# ols.json
 callisto-sandbox.exe
 callisto-sandbox.pdb

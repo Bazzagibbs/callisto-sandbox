@@ -9,34 +9,38 @@ import "core:math"
 import "core:os"
 import "core:fmt"
 import cal "callisto"
-import cal_runner "callisto/runner"
 
 Game_Memory :: struct {
         profiler: cal.Profiler,
+        engine: cal.Engine,
+        window: cal.Window,
         frame_count: int,
 }
 
 // ==================================
+// Implement these in every project
 
 @(export)
-callisto_runner_callbacks :: proc() -> cal_runner.Callbacks {
-        return cal_runner.Callbacks {
-                memory_manager = memory_manager,
-                init           = init,
-                loop           = loop,
-                shutdown       = shutdown,
+callisto_callbacks :: proc() -> cal.Callbacks {
+        return cal.Callbacks {
+                memory_manager         = memory_manager,
+                init                   = init,
+                loop                   = loop,
+                shutdown               = shutdown,
         }
 }
 
 
 // Entry point for standalone build. Not used in hot-reload builds.
-main :: proc() {
-        cal_runner.run(callisto_runner_callbacks())
+when ODIN_BUILD_MODE == .Executable {
+        main :: proc() {
+                cal.run_main(callisto_callbacks())
+        }
 }
 
 // ==================================
 
-memory_manager :: proc(mem_command: cal_runner.Memory_Command, game_mem: ^rawptr) {
+memory_manager :: proc(mem_command: cal.Memory_Command, game_mem: ^rawptr) {
         switch mem_command {
         case .Allocate:
                 game_mem^ = new(Game_Memory)
@@ -55,20 +59,32 @@ memory_manager :: proc(mem_command: cal_runner.Memory_Command, game_mem: ^rawptr
 init :: proc(game_mem_raw: rawptr) {
         g := (^Game_Memory)(game_mem_raw)
         g.frame_count = 0
-        g.profiler = cal.profiler_create()
+        cal.profiler_init(&g.profiler)
+        cal.init(&g.engine)
+
+        window_create_info := cal.Window_Create_Info {
+                name     = "Callisto Sandbox",
+                style    = cal.window_style_default(),
+                position = nil,
+                size     = nil,
+                
+        }
+        cal.window_create(&g.engine, &window_create_info, &g.window)
 }
 
 
-loop :: proc(game_mem_raw: rawptr) -> cal_runner.Loop_Result {
+loop :: proc(game_mem_raw: rawptr) -> cal.Loop_Result {
         g := (^Game_Memory)(game_mem_raw)
         cal.profile_scope(&g.profiler)
 
+        cal.poll_input(g.window)
         // poll_input()
         // simulate()
         // draw()
 
+
         // Change this to test hot reloading
-        if g.frame_count % 63 == 0 {
+        if g.frame_count % 60 == 0 {
                 log.info(g.frame_count)
         }
 
@@ -87,7 +103,7 @@ loop :: proc(game_mem_raw: rawptr) -> cal_runner.Loop_Result {
 
 shutdown :: proc(game_mem_raw: rawptr) {
         g := (^Game_Memory)(game_mem_raw)
-        
+        cal.destroy(&g.engine)
         cal.profiler_destroy(&g.profiler)
 }
 
