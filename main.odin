@@ -10,57 +10,32 @@ import "core:os"
 import "core:fmt"
 import cal "callisto"
 
-Game_Memory :: struct {
-        profiler: cal.Profiler,
-        engine: cal.Engine,
-        window: cal.Window,
-        frame_count: int,
+App_Memory :: struct {
+        engine      : cal.Engine,
+        profiler    : cal.Profiler,
+        window      : cal.Window,
+        frame_count : int,
 }
 
 // ==================================
 // Implement these in every project
 
+
 @(export)
-callisto_callbacks :: proc() -> cal.Callbacks {
-        return cal.Callbacks {
-                memory_manager         = memory_manager,
-                init                   = init,
-                loop                   = loop,
-                shutdown               = shutdown,
+callisto_init :: proc (runner: ^cal.Runner) -> (app_memory: rawptr){
+        app := new(App_Memory)
+        // This pointer will be passed to all other exported procs
+        app_memory = app
+        
+        cal.profiler_init(&app.profiler)
+
+        engine_init_info := cal.Engine_Init_Info {
+                runner        = runner,
+                app_name      = "Callisto Sandbox",
         }
-}
 
+        _ = cal.engine_init(&app.engine, &engine_init_info)
 
-// Entry point for standalone build. Not used in hot-reload builds.
-when ODIN_BUILD_MODE == .Executable {
-        main :: proc() {
-                cal.run_main(callisto_callbacks())
-        }
-}
-
-// ==================================
-
-memory_manager :: proc(mem_command: cal.Memory_Command, game_mem: ^rawptr) {
-        switch mem_command {
-        case .Allocate:
-                game_mem^ = new(Game_Memory)
-        case .Reset:
-                // modify the existing allocation and return it...
-                temp_mem := (^Game_Memory)(game_mem^)
-                temp_mem.frame_count = 0
-                // or free and allocate
-                // free(game_mem^)
-                // game_mem^ = new(Game_Memory)
-        case .Free:
-                free(game_mem^)
-        }
-}
-
-init :: proc(game_mem_raw: rawptr) {
-        g := (^Game_Memory)(game_mem_raw)
-        g.frame_count = 0
-        cal.profiler_init(&g.profiler)
-        cal.init(&g.engine)
 
         window_create_info := cal.Window_Create_Info {
                 name     = "Callisto Sandbox",
@@ -69,44 +44,64 @@ init :: proc(game_mem_raw: rawptr) {
                 size     = nil,
                 
         }
-        cal.window_create(&g.engine, &window_create_info, &g.window)
+
+        _ = cal.window_create(&app.engine, &window_create_info, &app.window)
+
+        return
 }
 
 
-loop :: proc(game_mem_raw: rawptr) -> cal.Loop_Result {
-        g := (^Game_Memory)(game_mem_raw)
-        cal.profile_scope(&g.profiler)
+@(export)
+callisto_destroy :: proc (app_memory: rawptr) {
+        app : ^App_Memory = (^App_Memory)(app_memory)
 
-        cal.poll_input(g.window)
-        // poll_input()
+        // cal.window_destroy(&app.engine, &app.window)
+        cal.engine_destroy(&app.engine)
+        cal.profiler_destroy(&app.profiler)
+
+        free(app)
+}
+
+@(export)
+callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool) {
+        app := (^App_Memory)(app_memory)
+
+        switch e in event {
+        case cal.Input_Event:
+                // Can be redirected to Callisto's input handler, or intercepted beforehand.
+                // cal.input_event_handler(&app.engine, e)
+        case cal.Window_Event:
+                // Handle these
+        }
+
+        return false
+}
+
+
+@(export)
+callisto_loop :: proc (app_memory: rawptr) {
+        app : ^App_Memory = (^App_Memory)(app_memory)
+
+        cal.profile_scope(&app.profiler)
+
+        cal.poll_input(&app.engine)
         // simulate()
         // draw()
 
 
         // Change this to test hot reloading
-        if g.frame_count % 60 == 0 {
-                log.info(g.frame_count)
+        if app.frame_count % 60 == 0 {
+                log.info(app.frame_count)
         }
 
-        g.frame_count += 1
+        app.frame_count += 1
         time.accurate_sleep(time.Second / 240)
 
-        if g.frame_count >= 3000 {
-                log.info("Exiting at frame", g.frame_count)
-                return .Shutdown
+        if app.frame_count >= 1000 {
+                log.info("Exiting at frame", app.frame_count)
+                cal.exit(&app.engine)
         }
-
-        // Can shut down or reset game by returning .Shutdown, .Reset_Soft, .Reset_Hard
-        return .Ok
-}
-
-
-shutdown :: proc(game_mem_raw: rawptr) {
-        g := (^Game_Memory)(game_mem_raw)
-        cal.destroy(&g.engine)
-        cal.profiler_destroy(&g.profiler)
 }
 
 // ==================================
-
 
