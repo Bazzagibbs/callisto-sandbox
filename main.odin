@@ -22,32 +22,28 @@ App_Memory :: struct {
 
 
 @(export)
-callisto_init :: proc (runner: ^cal.Runner) -> (app_memory: rawptr){
+callisto_init :: proc (runner: ^cal.Runner) {
         app := new(App_Memory)
-        // This pointer will be passed to all other exported procs
-        app_memory = app
         
         cal.profiler_init(&app.profiler)
 
         engine_init_info := cal.Engine_Init_Info {
-                runner        = runner,
-                app_name      = "Callisto Sandbox",
+                runner     = runner,
+                app_memory = app, 
+                icon       = nil,
         }
 
         _ = cal.engine_init(&app.engine, &engine_init_info)
 
 
         window_create_info := cal.Window_Create_Info {
-                name     = "Callisto Sandbox",
+                name     = "Callisto Sandbox - Main Window",
                 style    = cal.window_style_default(),
                 position = nil,
                 size     = nil,
-                
         }
 
         _ = cal.window_create(&app.engine, &window_create_info, &app.window)
-
-        return
 }
 
 
@@ -55,7 +51,7 @@ callisto_init :: proc (runner: ^cal.Runner) -> (app_memory: rawptr){
 callisto_destroy :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
 
-        // cal.window_destroy(&app.engine, &app.window)
+        cal.window_destroy(&app.engine, &app.window)
         cal.engine_destroy(&app.engine)
         cal.profiler_destroy(&app.profiler)
 
@@ -84,7 +80,7 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         cal.profile_scope(&app.profiler)
 
-        cal.poll_input(&app.engine)
+        cal.pump_input(&app.engine)
         // simulate()
         // draw()
 
