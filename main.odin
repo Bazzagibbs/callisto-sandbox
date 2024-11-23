@@ -31,6 +31,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 runner     = runner,
                 app_memory = app, 
                 icon       = nil,
+                event_behaviour = .Before_Loop_Wait,
         }
 
         _ = cal.engine_init(&app.engine, &engine_init_info)
@@ -64,10 +65,17 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
 
         switch e in event {
         case cal.Input_Event:
+                log.info(e.event)
                 // Can be redirected to Callisto's input handler, or intercepted beforehand.
                 // cal.input_event_handler(&app.engine, e)
         case cal.Window_Event:
                 // Handle these
+                log.info(e.event)
+                #partial switch we in e.event {
+                case cal.Window_Closed:
+                        // cal.exit()
+                        // return true
+                }
         }
 
         return false
@@ -78,25 +86,25 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
 callisto_loop :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
 
-        cal.profile_scope(&app.profiler)
+        // cal.profile_scope(&app.profiler)
 
-        cal.pump_input(&app.engine)
+        // cal.event_pump(&app.engine)
         // simulate()
         // draw()
 
 
         // Change this to test hot reloading
-        if app.frame_count % 60 == 0 {
-                log.info(app.frame_count)
-        }
-
-        app.frame_count += 1
+        // if app.frame_count % 60 == 0 {
+        //         log.info(app.frame_count)
+        // }
+        //
+        // app.frame_count += 1
         time.accurate_sleep(time.Second / 240)
 
-        if app.frame_count >= 1000 {
-                log.info("Exiting at frame", app.frame_count)
-                cal.exit(&app.engine)
-        }
+        // if app.frame_count >= 1000 {
+        //         log.info("Exiting at frame", app.frame_count)
+        //         cal.exit(&app.engine)
+        // }
 }
 
 // ==================================
