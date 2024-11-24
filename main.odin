@@ -14,6 +14,7 @@ App_Memory :: struct {
         engine      : cal.Engine,
         profiler    : cal.Profiler,
         window      : cal.Window,
+        stopwatch   : time.Stopwatch,
         frame_count : int,
 }
 
@@ -26,12 +27,13 @@ callisto_init :: proc (runner: ^cal.Runner) {
         app := new(App_Memory)
         
         cal.profiler_init(&app.profiler)
+        time.stopwatch_start(&app.stopwatch)
 
         engine_init_info := cal.Engine_Init_Info {
                 runner     = runner,
                 app_memory = app, 
                 icon       = nil,
-                event_behaviour = .Before_Loop_Wait,
+                event_behaviour = .Before_Loop,
         }
 
         _ = cal.engine_init(&app.engine, &engine_init_info)
@@ -65,7 +67,10 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
 
         switch e in event {
         case cal.Input_Event:
-                log.info(e.event)
+                #partial switch ie in e.event {
+                case cal.Input_Button: fmt.println(ie.source)
+                }
+                // log.info(e.event)
                 // Can be redirected to Callisto's input handler, or intercepted beforehand.
                 // cal.input_event_handler(&app.engine, e)
         case cal.Window_Event:
@@ -86,6 +91,11 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
 callisto_loop :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
 
+        frame_time := time.stopwatch_duration(app.stopwatch)
+        time.stopwatch_reset(&app.stopwatch)
+        time.stopwatch_start(&app.stopwatch)
+        // fmt.println(time.duration_milliseconds(frame_time))
+
         // cal.profile_scope(&app.profiler)
 
         // cal.event_pump(&app.engine)
@@ -99,7 +109,7 @@ callisto_loop :: proc (app_memory: rawptr) {
         // }
         //
         // app.frame_count += 1
-        time.accurate_sleep(time.Second / 240)
+        // time.accurate_sleep(time.Second / 240)
 
         // if app.frame_count >= 1000 {
         //         log.info("Exiting at frame", app.frame_count)
