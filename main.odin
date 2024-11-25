@@ -68,18 +68,15 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
         switch e in event {
         case cal.Input_Event:
                 #partial switch ie in e.event {
-                case cal.Input_Button: fmt.println(ie.source)
+                case cal.Input_Button:
+                        log.info(ie)
+                        return true
                 }
-                // log.info(e.event)
-                // Can be redirected to Callisto's input handler, or intercepted beforehand.
-                // cal.input_event_handler(&app.engine, e)
         case cal.Window_Event:
                 // Handle these
                 log.info(e.event)
                 #partial switch we in e.event {
                 case cal.Window_Closed:
-                        // cal.exit()
-                        // return true
                 }
         }
 
