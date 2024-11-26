@@ -18,9 +18,9 @@ App_Memory :: struct {
         frame_count : int,
 }
 
+
 // ==================================
 // Implement these in every project
-
 
 @(export)
 callisto_init :: proc (runner: ^cal.Runner) {
@@ -61,6 +61,11 @@ callisto_destroy :: proc (app_memory: rawptr) {
         free(app)
 }
 
+
+// Communication from the platform layer happens here (window, input).
+// By default the event queue gets pumped automatically at the beginning of every frame.
+// Alternatively, by initializing the engine with `event_behaviour = .Manual`, you may pump the
+// queue just before input is required with `callisto.event_pump()` to reduce input delay.
 @(export)
 callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool) {
         app := (^App_Memory)(app_memory)
