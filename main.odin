@@ -9,6 +9,7 @@ import "core:math"
 import "core:os"
 import "core:fmt"
 import cal "callisto"
+import "callisto/gpu"
 
 App_Memory :: struct {
         engine      : cal.Engine,
@@ -39,14 +40,16 @@ callisto_init :: proc (runner: ^cal.Runner) {
         _ = cal.engine_init(&app.engine, &engine_init_info)
 
 
-        window_create_info := cal.Window_Create_Info {
+        window_init_info := cal.Window_Init_Info {
                 name     = "Callisto Sandbox - Main Window",
                 style    = cal.window_style_default(),
                 position = nil,
                 size     = nil,
         }
 
-        _ = cal.window_create(&app.engine, &window_create_info, &app.window)
+        _ = cal.window_init(&app.engine, &app.window, &window_init_info)
+
+        // _ = gpu.device_init(&
 }
 
 
@@ -57,6 +60,8 @@ callisto_destroy :: proc (app_memory: rawptr) {
         cal.window_destroy(&app.engine, &app.window)
         cal.engine_destroy(&app.engine)
         cal.profiler_destroy(&app.profiler)
+
+        // gpu.device_destroy(&app.device)
 
         free(app)
 }
