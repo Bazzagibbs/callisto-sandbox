@@ -53,7 +53,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
 
         device_init_info := gpu.Device_Init_Info {
-
+                runner = runner,
         }
 
         _ = gpu.device_init(&app.device, &device_init_info)
