@@ -4,5 +4,5 @@
 /out/
 
 # ols.json
-callisto-sandbox.exe
-callisto-sandbox.pdb
+*.exe
+*.pdb

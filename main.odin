@@ -13,10 +13,12 @@ import "callisto/gpu"
 
 App_Memory :: struct {
         engine      : cal.Engine,
+        device      : gpu.Device,
         profiler    : cal.Profiler,
         window      : cal.Window,
         stopwatch   : time.Stopwatch,
         frame_count : int,
+
 }
 
 
@@ -49,7 +51,12 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         _ = cal.window_init(&app.engine, &app.window, &window_init_info)
 
-        // _ = gpu.device_init(&
+
+        device_init_info := gpu.Device_Init_Info {
+
+        }
+
+        _ = gpu.device_init(&app.device, &device_init_info)
 }
 
 
@@ -61,7 +68,7 @@ callisto_destroy :: proc (app_memory: rawptr) {
         cal.engine_destroy(&app.engine)
         cal.profiler_destroy(&app.profiler)
 
-        // gpu.device_destroy(&app.device)
+        gpu.device_destroy(&app.device)
 
         free(app)
 }
