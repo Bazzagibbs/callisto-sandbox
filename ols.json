@@ -2,8 +2,12 @@
 	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
         "enable_semantic_tokens": true,
         "enable_inlay_hints": true,
+        "enable_hover": true,
+        "checker_args": [
+                "-define:RHI=vulkan"
+        ],
 	"profile": "windows_profile",
 	"profiles": [
-		{ "name": "windows_profile", "os": "windows"}
+		{ "name": "windows_profile", "os": "windows", "}
 	]
 }
