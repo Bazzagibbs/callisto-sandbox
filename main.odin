@@ -162,7 +162,10 @@ callisto_loop :: proc (app_memory: rawptr) {
         gpu.swapchain_acquire_command_buffer(d, sc, &cb)
        
         swapchain_target : ^gpu.Texture
-        gpu.swapchain_acquire_texture(d, &app.swapchain, &swapchain_target)
+        res := gpu.swapchain_acquire_texture(d, &app.swapchain, &swapchain_target)
+        if res == .Swapchain_Rebuilt {
+                on_swapchain_rebuilt(d, sc, app)
+        }
 
         gpu.command_buffer_begin(d, cb)
         // gpu.cmd_begin_render_pass(d, cb, &final_color_target, &depth_target)
@@ -186,6 +189,7 @@ callisto_loop :: proc (app_memory: rawptr) {
 
 
         // Render to the intermediate HDR texture using compute
+        gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
 
 
         // Prepare RT -> Swapchain transfer
@@ -232,13 +236,15 @@ callisto_loop :: proc (app_memory: rawptr) {
         // Submit work to GPU
         gpu.command_buffer_submit(d, cb)
         gpu.swapchain_present(d, sc)
-
 }
 
 // ==================================
 
 
-on_swapchain_rebuild :: proc(d: ^gpu.Device, sc: ^gpu.Swapchain, a: ^App_Memory) {
+on_swapchain_rebuilt :: proc(d: ^gpu.Device, sc: ^gpu.Swapchain, a: ^App_Memory) {
+        log.info("Rebuilt swapchain")
+
+        gpu.device_wait_for_idle(d)
         gpu.texture_destroy(d, &a.render_target)
 
         // Recreate intermediate render target textures with new extent
