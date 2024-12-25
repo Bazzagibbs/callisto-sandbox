@@ -12,17 +12,19 @@ import cal "callisto"
 import "callisto/gpu"
 
 App_Memory :: struct {
-        engine        : cal.Engine,
-        window        : cal.Window,
+        engine                 : cal.Engine,
+        window                 : cal.Window,
 
         // GPU (will likely be abstracted by engine)
-        device        : gpu.Device,
-        swapchain     : gpu.Swapchain,
-        render_target : gpu.Texture,
+        device                 : gpu.Device,
+        swapchain              : gpu.Swapchain,
+        render_target          : gpu.Texture,
+        shader                 : gpu.Shader,
+        compute_draw_constants : gpu.Constant_Buffer,
 
         // Application
-        stopwatch     : time.Stopwatch,
-        frame_count   : int,
+        stopwatch              : time.Stopwatch,
+        frame_count            : int,
 }
 
 
@@ -94,22 +96,34 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
                 gpu.texture_init(&app.device, &app.render_target, &render_target_init_info)
         }
+
+        // Create test shader
+        {
+                shader_init_info := gpu.Shader_Init_Info {
+                        code  = #load("resources/shaders/compute_draw.spv"),
+                        stage = .Compute,
+                }
+
+
+                gpu.shader_init(&app.device, &app.shader, &shader_init_info)
+        }
 }
 
 
 @(export)
 callisto_destroy :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
+        d := &app.device
         
         gpu.device_wait_for_idle(&app.device)
 
-        gpu.texture_destroy(&app.device, &app.render_target)
-        gpu.swapchain_destroy(&app.device, &app.swapchain)
-        gpu.device_destroy(&app.device)
+        gpu.shader_destroy(d, &app.shader)
+        gpu.texture_destroy(d, &app.render_target)
+        gpu.swapchain_destroy(d, &app.swapchain)
+        gpu.device_destroy(d)
 
         cal.window_destroy(&app.engine, &app.window)
         cal.engine_destroy(&app.engine)
-
 
         free(app)
 }
@@ -168,6 +182,7 @@ callisto_loop :: proc (app_memory: rawptr) {
         }
 
         gpu.command_buffer_begin(d, cb)
+
         // gpu.cmd_begin_render_pass(d, cb, &final_color_target, &depth_target)
         // gpu.cmd_bind_vertex_shader(d, cb, app.vertex_shader)
         // gpu.cmd_bind_fragment_shader(d, cb, app.fragment_shader)
@@ -190,6 +205,12 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         // Render to the intermediate HDR texture using compute
         gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
+        // gpu.cmd_bind_shader(d, cb, &app.shader)
+        // gpu.cmd_bind_resource_sets(d, cb, .Compute, {app.compute_draw_resources})
+
+        // target_extent := gpu.texture_get_extent(d, &app.render_target)
+        // workgroups := [2]int {math.ceiltarget.extent.x / 16.0}
+        // gpu.cmd_dispatch(d, cb, 16, 16)
 
 
         // Prepare RT -> Swapchain transfer
