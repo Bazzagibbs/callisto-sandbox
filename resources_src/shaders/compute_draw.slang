@@ -1,11 +1,24 @@
 struct Constant_Handles {
-        uint scene;
-        uint pass;
-        uint material;
-        uint instance;
+        uint scene_id;
+        uint pass_id;
+        uint shader_id;
+        uint instance_id;
 };
 
-[push_constant] Constant_Handles handles;
+layout(push_constant) Constant_Handles constants;
+
+layout(binding = 0) ByteAddressBuffer storage;
+layout(binding = 1) Sampler2D samplers[];
+layout(binding = 2) RWTexture2D rw_textures[];
+// layout(binding = 3) Acceleration_Structures;
+
+// ---------------
+
+struct Shader_Constants {
+        uint tex_target_id;
+};
+
+
 
 // ConstantBuffer constant_buffers[];
 // RWTexture2D target;
@@ -17,8 +30,10 @@ struct Constant_Handles {
 [numthreads(16, 16, 1)]
 void compute_main(uint3 thread_id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
         uint2 texel_coord = thread_id.xy;
+        Shader_Constants shader = storage[constants.shader_id];
 
-        /*
+        RWTexture2D target = rw_textures[shader.tex_target_id];
+        
         uint width, height;
         target.GetDimensions(width, height);
 
@@ -32,5 +47,5 @@ void compute_main(uint3 thread_id : SV_DispatchThreadID, uint3 local_id : SV_Gro
 
                 target[texel_coord] = color;
         }
-        */
+        
 }
