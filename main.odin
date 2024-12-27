@@ -12,19 +12,24 @@ import cal "callisto"
 import "callisto/gpu"
 
 App_Memory :: struct {
-        engine                 : cal.Engine,
-        window                 : cal.Window,
+        engine               : cal.Engine,
+        window               : cal.Window,
 
         // GPU (will likely be abstracted by engine)
-        device                 : gpu.Device,
-        swapchain              : gpu.Swapchain,
-        render_target          : gpu.Texture,
-        shader                 : gpu.Shader,
-        compute_draw_constants : gpu.Constant_Buffer,
+        device               : gpu.Device,
+        swapchain            : gpu.Swapchain,
+        render_target        : gpu.Texture,
+        compute_shader       : gpu.Shader,
+        compute_draw_cbuffer : gpu.Constant_Buffer,
 
         // Application
-        stopwatch              : time.Stopwatch,
-        frame_count            : int,
+        stopwatch            : time.Stopwatch,
+        frame_count          : int,
+}
+
+
+Compute_Draw_Constants :: struct {
+        target_handle : gpu.Texture_Handle,
 }
 
 
@@ -105,7 +110,21 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 }
 
 
-                gpu.shader_init(&app.device, &app.shader, &shader_init_info)
+                gpu.shader_init(&app.device, &app.compute_shader, &shader_init_info)
+        }
+
+        // Create constant buffer
+        {
+                compute_draw_constants := Compute_Draw_Constants {
+                        target_handle = gpu.texture_get_storage_handle(&app.device, &app.render_target),
+                }
+
+                constant_init_info := gpu.Constant_Buffer_Init_Info {
+                        size         = size_of(compute_draw_constants),
+                        initial_data = &compute_draw_constants,
+                }
+                
+                // gpu.constant_buffer_init(&app.device, &app.compute_draw_cbuffer, &constant_init_info)
         }
 }
 
@@ -117,7 +136,8 @@ callisto_destroy :: proc (app_memory: rawptr) {
         
         gpu.device_wait_for_idle(&app.device)
 
-        gpu.shader_destroy(d, &app.shader)
+        // gpu.constant_buffer_destroy(d, &app.compute_draw_cbuffer)
+        gpu.shader_destroy(d, &app.compute_shader)
         gpu.texture_destroy(d, &app.render_target)
         gpu.swapchain_destroy(d, &app.swapchain)
         gpu.device_destroy(d)
@@ -181,6 +201,9 @@ callisto_loop :: proc (app_memory: rawptr) {
                 on_swapchain_rebuilt(d, sc, app)
         }
 
+
+        // gpu.constant_buffers_update(d, )
+
         gpu.command_buffer_begin(d, cb)
 
         // gpu.cmd_begin_render_pass(d, cb, &final_color_target, &depth_target)
@@ -205,15 +228,18 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         // Render to the intermediate HDR texture using compute
         gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
-        // gpu.cmd_bind_shader(d, cb, &app.shader)
-        // gpu.cmd_bind_resource_sets(d, cb, .Compute, {app.compute_draw_resources})
+        gpu.cmd_set_constant_buffers(d, cb, {{.Per_Pass, &app.compute_draw_cbuffer}})
 
-        // target_extent := gpu.texture_get_extent(d, &app.render_target)
-        // workgroups := [2]int {math.ceiltarget.extent.x / 16.0}
-        // gpu.cmd_dispatch(d, cb, 16, 16)
+        gpu.cmd_bind_shader(d, cb, &app.compute_shader)
+
+        target_extent := gpu.texture_get_extent(d, &app.render_target)
+        workgroups := [2]u32 {u32(math.ceil(f32(target_extent.x) / 16.0)), u32(math.ceil(f32(target_extent.y) / 16.0))}
+        gpu.cmd_dispatch(d, cb, {workgroups.x, workgroups.y, 1})
 
 
         // Prepare RT -> Swapchain transfer
+
+        // SRC TEXTURE
         transition_rt_to_transfer_src := gpu.Texture_Transition_Info {
                 texture_aspect    = {.Color},
                 after_src_stages  = {.Color_Target_Output},
@@ -225,7 +251,7 @@ callisto_loop :: proc (app_memory: rawptr) {
         }
         gpu.cmd_transition_texture(d, cb, rt, &transition_rt_to_transfer_src)
 
-
+        // DST TEXTURE
         transition_sc_to_transfer_dst := gpu.Texture_Transition_Info {
                 texture_aspect    = {.Color},
                 after_src_stages  = {.Blit},

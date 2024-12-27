@@ -10,10 +10,11 @@ layout(buffer_reference) buffer Scene_Data {
 layout(buffer_reference) buffer Pass_Data {
         mat4x4 view;
         mat4x4 view_proj;
+        uint target_id;
 };
 
-layout(buffer_reference) buffer Shader_Data {
-        uint target_id;
+layout(buffer_reference) buffer Material_Data {
+        vec4 color;
 };
 
 layout(buffer_reference) buffer Instance_Data {
@@ -25,7 +26,7 @@ layout(buffer_reference) buffer Instance_Data {
 layout(push_constant) uniform _Push_Constant {
         Scene_Data scene_data;
         Pass_Data pass_data;
-        Shader_Data shader_data;
+        Material_Data material_data;
         Instance_Data instance_data;
 };
 
@@ -39,9 +40,7 @@ layout(rgba16f, binding = 2) uniform image2D rw_textures[];
 layout(local_size_x = 16, local_size_y = 16) in;
 
 void main() {
-        rw_textures[shader_data.target_id];
-
-        ivec2 size = imageSize(rw_textures[shader_data.target_id]);
+        ivec2 size = imageSize(rw_textures[pass_data.target_id]);
         ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 
         if (texel_coord.x < size.x && texel_coord.y < size.y) {
@@ -52,7 +51,7 @@ void main() {
                         color.g = gl_LocalInvocationID.y / 16.0;
                 }
 
-                imageStore(rw_textures[shader_data.target_id], texel_coord, color);
+                imageStore(rw_textures[pass_data.target_id], texel_coord, color);
         }
         
 }
