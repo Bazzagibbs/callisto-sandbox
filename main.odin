@@ -29,6 +29,7 @@ App_Memory :: struct {
 
 
 Compute_Draw_Constants :: struct {
+        color  : [4]f32,
         target : gpu.Texture_Reference,
 }
 
@@ -59,7 +60,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
         {
                 window_init_info := cal.Window_Init_Info {
                         name     = "Callisto Sandbox - Main Window",
-                        style    = cal.window_style_default(),
+                        style    = cal.Window_Style_Flags_DEFAULT,
                         position = nil,
                         size     = nil,
                 }
@@ -117,11 +118,6 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         // Create constant buffer
         {
-
-                constant_data := Compute_Draw_Constants {
-                        target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
-                }
-
                 cbufs_init_info := gpu.Buffer_Init_Info {
                         size = size_of(Compute_Draw_Constants),
                         usage = {.Storage, .Transfer_Dst, .Addressable},
@@ -204,17 +200,22 @@ callisto_loop :: proc (app_memory: rawptr) {
                 on_swapchain_rebuilt(d, sc, app)
         }
 
-
-        // gpu.constant_buffers_update(d, )
-
         gpu.command_buffer_begin(d, cb)
 
-        // gpu.cmd_begin_render_pass(d, cb, &final_color_target, &depth_target)
-        // gpu.cmd_bind_vertex_shader(d, cb, app.vertex_shader)
-        // gpu.cmd_bind_fragment_shader(d, cb, app.fragment_shader)
-        // gpu.cmd_transfer_uniforms(d, cb, app.uniforms)
-        // gpu.cmd_draw(d, cb, mesh.verts, mesh.indices)
-        // gpu.cmd_end_render_pass(d, cb)
+
+        // Update dynamic constant buffers
+        constant_data := Compute_Draw_Constants {
+                color = {88, 77, math.sin(f32(app.frame_count) / 100), 1},
+                target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
+        }
+
+        update_info := gpu.Buffer_Upload_Info {
+                size       = size_of(Compute_Draw_Constants),
+                dst_offset = 0,
+                data       = &constant_data,
+        }
+        gpu.cmd_update_buffer(d, cb, &app.compute_draw_cbuffer, &update_info)
+
 
         // Transition RT to be color target
         transition_rt_to_color_target := gpu.Texture_Transition_Info {
@@ -231,7 +232,7 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         // Render to the intermediate HDR texture using compute
         gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
-        cbuf_ref := gpu.buffer_get_reference(d, &app.compute_draw_cbuffer, 0)
+        cbuf_ref := gpu.buffer_get_reference(d, &app.compute_draw_cbuffer, size_of(Compute_Draw_Constants), 0)
         gpu.cmd_set_constant_buffers(d, cb, {{.Per_Pass, &cbuf_ref}})
 
         gpu.cmd_bind_shader(d, cb, &app.compute_shader)
@@ -287,6 +288,8 @@ callisto_loop :: proc (app_memory: rawptr) {
         // Submit work to GPU
         gpu.command_buffer_submit(d, cb)
         gpu.swapchain_present(d, sc)
+
+        app.frame_count += 1
 }
 
 // ==================================

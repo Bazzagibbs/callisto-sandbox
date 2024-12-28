@@ -8,8 +8,7 @@ layout(buffer_reference) buffer Scene_Data {
 };
 
 layout(buffer_reference) buffer Pass_Data {
-        mat4x4 view;
-        mat4x4 view_proj;
+        vec4 color;
         uint target_id;
 };
 
@@ -44,7 +43,8 @@ void main() {
         ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
 
         if (texel_coord.x < size.x && texel_coord.y < size.y) {
-                vec4 color = {0, 0, 0, 1};
+                // vec4 color = {0, 0, 0, 1};
+                vec4 color = pass_data.color;
 
                 if (gl_LocalInvocationID.x != 0 && gl_LocalInvocationID.y != 0) {
                         color.r = gl_LocalInvocationID.x / 16.0;
