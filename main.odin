@@ -29,8 +29,9 @@ App_Memory :: struct {
 
 
 Compute_Draw_Constants :: struct {
-        color  : [4]f32,
         target : gpu.Texture_Reference,
+        _      : [3]u32,
+        color  : [4]f32,
 }
 
 
@@ -209,7 +210,7 @@ callisto_loop :: proc (app_memory: rawptr) {
                 target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
         }
 
-        update_info := gpu.Buffer_Upload_Info {
+        update_info := gpu.Upload_Info {
                 size       = size_of(Compute_Draw_Constants),
                 dst_offset = 0,
                 data       = &constant_data,

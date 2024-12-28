@@ -8,8 +8,8 @@ layout(buffer_reference) buffer Scene_Data {
 };
 
 layout(buffer_reference) buffer Pass_Data {
-        vec4 color;
         uint target_id;
+        vec4 color;
 };
 
 layout(buffer_reference) buffer Material_Data {
