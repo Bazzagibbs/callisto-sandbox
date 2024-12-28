@@ -20,7 +20,7 @@ App_Memory :: struct {
         swapchain            : gpu.Swapchain,
         render_target        : gpu.Texture,
         compute_shader       : gpu.Shader,
-        compute_draw_cbuffer : gpu.Constant_Buffer,
+        compute_draw_cbuffer : gpu.Buffer,
 
         // Application
         stopwatch            : time.Stopwatch,
@@ -29,7 +29,7 @@ App_Memory :: struct {
 
 
 Compute_Draw_Constants :: struct {
-        target_handle : gpu.Texture_Handle,
+        target : gpu.Texture_Reference,
 }
 
 
@@ -69,6 +69,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
 
         // GPU
+        d: ^gpu.Device
         {
                 device_init_info := gpu.Device_Init_Info {
                         runner            = runner,
@@ -84,6 +85,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 }
 
                 _ = gpu.swapchain_init(&app.device, &app.swapchain, &swapchain_init_info)
+                d = &app.device
         }
 
         // Create intermediate HDR render textures with the same size as the swapchain
@@ -99,7 +101,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
                         layer_count = 1,
                 }
 
-                gpu.texture_init(&app.device, &app.render_target, &render_target_init_info)
+                gpu.texture_init(d, &app.render_target, &render_target_init_info)
         }
 
         // Create test shader
@@ -110,21 +112,22 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 }
 
 
-                gpu.shader_init(&app.device, &app.compute_shader, &shader_init_info)
+                gpu.shader_init(d, &app.compute_shader, &shader_init_info)
         }
 
         // Create constant buffer
         {
-                compute_draw_constants := Compute_Draw_Constants {
-                        target_handle = gpu.texture_get_storage_handle(&app.device, &app.render_target),
+
+                constant_data := Compute_Draw_Constants {
+                        target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
                 }
 
-                constant_init_info := gpu.Constant_Buffer_Init_Info {
-                        size         = size_of(compute_draw_constants),
-                        initial_data = &compute_draw_constants,
+                cbufs_init_info := gpu.Buffer_Init_Info {
+                        size = size_of(Compute_Draw_Constants),
+                        usage = {.Storage, .Transfer_Dst, .Addressable},
                 }
                 
-                // gpu.constant_buffer_init(&app.device, &app.compute_draw_cbuffer, &constant_init_info)
+                gpu.buffer_init(d, &app.compute_draw_cbuffer, &cbufs_init_info)
         }
 }
 
@@ -136,7 +139,7 @@ callisto_destroy :: proc (app_memory: rawptr) {
         
         gpu.device_wait_for_idle(&app.device)
 
-        // gpu.constant_buffer_destroy(d, &app.compute_draw_cbuffer)
+        gpu.buffer_destroy(d, &app.compute_draw_cbuffer)
         gpu.shader_destroy(d, &app.compute_shader)
         gpu.texture_destroy(d, &app.render_target)
         gpu.swapchain_destroy(d, &app.swapchain)
@@ -228,7 +231,8 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         // Render to the intermediate HDR texture using compute
         gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
-        gpu.cmd_set_constant_buffers(d, cb, {{.Per_Pass, &app.compute_draw_cbuffer}})
+        cbuf_ref := gpu.buffer_get_reference(d, &app.compute_draw_cbuffer, 0)
+        gpu.cmd_set_constant_buffers(d, cb, {{.Per_Pass, &cbuf_ref}})
 
         gpu.cmd_bind_shader(d, cb, &app.compute_shader)
 
