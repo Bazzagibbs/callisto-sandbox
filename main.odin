@@ -8,6 +8,11 @@ import "core:math/linalg"
 import "core:math"
 import "core:os"
 import "core:fmt"
+
+import "core:image"
+import "core:image/png"
+import "core:bytes"
+
 import cal "callisto"
 import "callisto/gpu"
 
@@ -21,6 +26,7 @@ App_Memory :: struct {
         render_target        : gpu.Texture,
         compute_shader       : gpu.Shader,
         compute_draw_cbuffer : gpu.Buffer,
+        sprite_tex           : gpu.Texture,
 
         // Application
         stopwatch            : time.Stopwatch,
@@ -28,9 +34,9 @@ App_Memory :: struct {
 }
 
 
-Compute_Draw_Constants :: struct {
+Compute_Draw_Constants :: struct #align(16) #min_field_align(16) {
         target : gpu.Texture_Reference,
-        _      : [3]u32,
+        // _      : [3]u32,
         color  : [4]f32,
 }
 
@@ -126,6 +132,87 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 
                 gpu.buffer_init(d, &app.compute_draw_cbuffer, &cbufs_init_info)
         }
+
+
+        // Upload read-only resources
+        {
+                sprite_filename := cal.get_asset_path("images/sprite.png", context.temp_allocator)
+
+                // Load image data from disk
+                sprite_image, _ := image.load_from_file(sprite_filename, {.alpha_add_if_missing}, context.temp_allocator)
+                pixels := bytes.buffer_to_bytes(&sprite_image.pixels)
+
+                // Create texture GPU resource
+                sprite_info := gpu.Texture_Init_Info {
+                        format             = .R8G8B8A8_UNORM,
+                        usage              = {.Sampled, .Transfer_Dst},
+                        queue_usage        = {.Graphics, .Compute_Sync},
+                        memory_access_type = .Device_Read_Only,
+                        dimensions         = ._2D,
+                        extent             = {u32(sprite_image.width), u32(sprite_image.height), 1},
+                        mip_count          = 1,
+                        layer_count        = 1,
+                        multisample        = .None,
+                        sampler_info       = gpu.Sampler_Info_DEFAULT,
+                }
+                gpu.texture_init(d, &app.sprite_tex, &sprite_info)
+
+
+                // Prepare staging buffer
+                staging : gpu.Buffer
+                staging_info := gpu.Buffer_Init_Info {
+                        size               = u64(len(pixels)),
+                        usage              = {.Storage, .Transfer_Src},
+                        queue_usage        = {.Graphics, .Compute_Sync},
+                        memory_access_type = .Staging,
+                }
+                gpu.buffer_init(d, &staging, &staging_info)
+
+
+                upload_buffer : ^gpu.Command_Buffer
+                gpu.immediate_command_buffer_get(d, &upload_buffer)
+                gpu.command_buffer_begin(d, upload_buffer)
+
+                upload_info := gpu.Texture_Upload_Info {
+                        size = u64(len(pixels)),
+                        data = raw_data(pixels),
+                }
+               
+
+                // Prepare texture for upload
+                tex_dst_info := gpu.Texture_Transition_Info {
+                        texture_aspect    = {.Color},
+                        after_src_stages  = {},
+                        before_dst_stages = {.Transfer},
+                        src_layout        = .Undefined,
+                        dst_layout        = .Transfer_Dst,
+                        src_access        = {},
+                        dst_access        = {.Transfer_Write}
+                }
+                gpu.cmd_transition_texture(d, upload_buffer, &app.sprite_tex, &tex_dst_info)
+               
+                // Upload
+                gpu.cmd_upload_color_texture(d, upload_buffer, &staging, &app.sprite_tex, &upload_info)
+                
+                // Make texture read-only
+                tex_read_info := gpu.Texture_Transition_Info {
+                        texture_aspect    = {.Color},
+                        after_src_stages  = {.Transfer},
+                        before_dst_stages = {.All_Graphics},
+                        src_layout        = .Transfer_Dst,
+                        dst_layout        = .Read_Only,
+                        src_access        = {.Transfer_Write},
+                        dst_access        = {.Texture_Read}
+                }
+                gpu.cmd_transition_texture(d, upload_buffer, &app.sprite_tex, &tex_read_info)
+
+
+
+                gpu.command_buffer_end(d, upload_buffer)
+                gpu.immediate_command_buffer_submit(d, upload_buffer)
+
+                gpu.buffer_destroy(d, &staging)
+        }
 }
 
 
@@ -136,6 +223,7 @@ callisto_destroy :: proc (app_memory: rawptr) {
         
         gpu.device_wait_for_idle(&app.device)
 
+        gpu.texture_destroy(d, &app.sprite_tex)
         gpu.buffer_destroy(d, &app.compute_draw_cbuffer)
         gpu.shader_destroy(d, &app.compute_shader)
         gpu.texture_destroy(d, &app.render_target)
@@ -210,7 +298,7 @@ callisto_loop :: proc (app_memory: rawptr) {
                 target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
         }
 
-        update_info := gpu.Upload_Info {
+        update_info := gpu.Buffer_Upload_Info {
                 size       = size_of(Compute_Draw_Constants),
                 dst_offset = 0,
                 data       = &constant_data,
@@ -221,7 +309,7 @@ callisto_loop :: proc (app_memory: rawptr) {
         // Transition RT to be color target
         transition_rt_to_color_target := gpu.Texture_Transition_Info {
                 texture_aspect    = {.Color},
-                after_src_stages  = {.Begin},
+                after_src_stages  = {},
                 before_dst_stages = {.Color_Target_Output},
                 src_layout        = .Undefined,
                 dst_layout        = .General,
@@ -230,11 +318,11 @@ callisto_loop :: proc (app_memory: rawptr) {
         }
         gpu.cmd_transition_texture(d, cb, rt, &transition_rt_to_color_target)
 
-
         // Render to the intermediate HDR texture using compute
         gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
+
         cbuf_ref := gpu.buffer_get_reference(d, &app.compute_draw_cbuffer, size_of(Compute_Draw_Constants), 0)
-        gpu.cmd_set_constant_buffers(d, cb, {{.Per_Pass, &cbuf_ref}})
+        gpu.cmd_set_constant_buffer_pass(d, cb, &cbuf_ref)
 
         gpu.cmd_bind_shader(d, cb, &app.compute_shader)
 
@@ -276,7 +364,7 @@ callisto_loop :: proc (app_memory: rawptr) {
         transition_sc_to_present := gpu.Texture_Transition_Info {
                 texture_aspect    = {.Color},
                 after_src_stages  = {.Blit},
-                before_dst_stages = {.Begin},
+                before_dst_stages = {},
                 src_layout        = .Transfer_Dst,
                 dst_layout        = .Present,
                 src_access        = {.Memory_Write},
