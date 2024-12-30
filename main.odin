@@ -35,9 +35,9 @@ App_Memory :: struct {
 
 
 Compute_Draw_Constants :: struct #align(16) #min_field_align(16) {
-        target : gpu.Texture_Reference,
-        // _      : [3]u32,
         color  : [4]f32,
+        sprite : gpu.Texture_Reference,
+        target : gpu.Texture_Reference,
 }
 
 
@@ -291,21 +291,6 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         gpu.command_buffer_begin(d, cb)
 
-
-        // Update dynamic constant buffers
-        constant_data := Compute_Draw_Constants {
-                color = {88, 77, math.sin(f32(app.frame_count) / 100), 1},
-                target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
-        }
-
-        update_info := gpu.Buffer_Upload_Info {
-                size       = size_of(Compute_Draw_Constants),
-                dst_offset = 0,
-                data       = &constant_data,
-        }
-        gpu.cmd_update_buffer(d, cb, &app.compute_draw_cbuffer, &update_info)
-
-
         // Transition RT to be color target
         transition_rt_to_color_target := gpu.Texture_Transition_Info {
                 texture_aspect    = {.Color},
@@ -320,9 +305,25 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         // Render to the intermediate HDR texture using compute
         gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
+        
+        // Update dynamic constant buffers
+        constant_data := Compute_Draw_Constants {
+                color  = {(1 + math.sin(f32(app.frame_count) / 100)) / 2, 1, 1, 1},
+                sprite = gpu.texture_get_reference_sampled(d, &app.sprite_tex),
+                target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
+        }
 
+        update_info := gpu.Buffer_Upload_Info {
+                size       = size_of(Compute_Draw_Constants),
+                dst_offset = 0,
+                data       = &constant_data,
+        }
+        gpu.cmd_update_buffer(d, cb, &app.compute_draw_cbuffer, &update_info)
+
+
+        // Set constant buffer
         cbuf_ref := gpu.buffer_get_reference(d, &app.compute_draw_cbuffer, size_of(Compute_Draw_Constants), 0)
-        gpu.cmd_set_constant_buffer_pass(d, cb, &cbuf_ref)
+        gpu.cmd_set_constant_buffer_0(d, cb, &cbuf_ref)
 
         gpu.cmd_bind_shader(d, cb, &app.compute_shader)
 
