@@ -1,51 +1,39 @@
-struct Constant_Handles {
-        uint scene_id;
-        uint pass_id;
-        uint shader_id;
-        uint instance_id;
+struct Buffer_0 {
+        float4 color;
+        uint target_tex_id;
+        uint sprite_tex_id;
 };
 
-layout(push_constant) Constant_Handles constants;
+struct Push_Constant {
+        Buffer_0 *buffer_0;
+        void *_padding_a;
+        void *_padding_b;
+        void *_padding_c;
+};
 
-layout(binding = 0) ByteAddressBuffer storage;
+layout(push_constant) Push_Constant constants;
+
+// layout(binding = 0) ByteAddressBuffer storage;
 layout(binding = 1) Sampler2D samplers[];
 layout(binding = 2) RWTexture2D rw_textures[];
-// layout(binding = 3) Acceleration_Structures;
-
-// ---------------
-
-struct Shader_Constants {
-        uint tex_target_id;
-};
-
-
-
-// ConstantBuffer constant_buffers[];
-// RWTexture2D target;
-// RWTexture2D<half4> target;
 
 
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
 void compute_main(uint3 thread_id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
-        uint2 texel_coord = thread_id.xy;
-        Shader_Constants shader = storage[constants.shader_id];
-
-        RWTexture2D target = rw_textures[shader.tex_target_id];
+        Sampler2D sprite = samplers[constants.buffer_0.sprite_tex_id];
+        RWTexture2D target = rw_textures[constants.buffer_0.target_tex_id];
         
         uint width, height;
-        target.GetDimensions(width, height);
-
-        if (texel_coord.x < width && texel_coord.y < height) {
-                float4 color = {0, 0, 0, 1};
-
-                if (local_id.x != 0 && local_id.y != 0) {
-                        color.r = local_id.x / 16.0;
-                        color.g = local_id.y / 16.0;
-                }
-
-                target[texel_coord] = color;
-        }
+        sprite.GetDimensions(width, height);
         
+        uint2 tex_coord_int = thread_id.xy;
+        float2 tex_coord = float2(float(tex_coord_int.x) / float(width),
+                                  float(tex_coord_int.y) / float(height));
+
+        float4 color = sprite.SampleLevel(tex_coord, 0); // NOTE: default .Sample() in compute requires derivative exts.
+        color *= constants.buffer_0.color;
+
+        target[tex_coord_int] = color;
 }

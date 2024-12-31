@@ -40,6 +40,11 @@ Compute_Draw_Constants :: struct #align(16) #min_field_align(16) {
         target : gpu.Texture_Reference,
 }
 
+Vertex :: struct #packed {
+        position  : [3]f32,
+        tex_coord : [2]f16,
+}
+
 
 // ==================================
 // Implement these in every project
