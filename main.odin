@@ -23,10 +23,10 @@ App_Memory :: struct {
 
         // GPU (will likely be abstracted by engine)
         device            : gpu.Device,
-        // swapchain         : gpu.Swapchain,
+        swapchain         : gpu.Swapchain,
         // render_target     : gpu.Texture,
-        // vertex_shader     : gpu.Shader,
-        // fragment_shader   : gpu.Shader,
+        vertex_shader     : gpu.Vertex_Shader,
+        fragment_shader   : gpu.Fragment_Shader,
         // material_cbuffer  : gpu.Buffer,
         // sprite_tex        : gpu.Texture,
         //
@@ -83,31 +83,42 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         // GPU
         d  : ^gpu.Device
-        // sc : ^gpu.Swapchain
+        sc : ^gpu.Swapchain
         {
                 device_create_info := gpu.Device_Create_Info {
                         runner            = runner,
                 }
-
                 app.device, _ = gpu.device_create(&device_create_info)
                 d = &app.device
 
 
-                // swapchain_create_info := gpu.Swapchain_Create_Info {
-                //         window = app.window,
-                //         vsync  = .Double_Buffered,
-                // }
-                //
-                // app.swapchain, _ = gpu.swapchain_create(&app.device, &swapchain_create_info)
-                // sc = &app.swapchain
+                swapchain_create_info := gpu.Swapchain_Create_Info {
+                        window  = &app.window,
+                        vsync   = true,
+                        scaling = .Stretch,
+                }
+                app.swapchain, _ = gpu.swapchain_create(&app.device, &swapchain_create_info)
+                sc = &app.swapchain
         }
 
 
 
-        // Create quad mesh 
+        // Shaders
         {
-                
+                // Vertex
+                vs_info := gpu.Vertex_Shader_Create_Info {
+                        code = #load("resources/shaders/mesh.vertex.dxbc"),
+                        vertex_attributes = {.Position, .Tex_Coord_0},
+                }
+                app.vertex_shader, _ = gpu.vertex_shader_create(d, &vs_info)
+
+                // Fragment
+                fs_info := gpu.Fragment_Shader_Create_Info {
+                        code = #load("resources/shaders/mesh.fragment.dxbc"),
+                }
+                app.fragment_shader, _ = gpu.fragment_shader_create(d, &fs_info)
         }
+
 
 
         // Upload read-only resources
@@ -133,7 +144,6 @@ callisto_init :: proc (runner: ^cal.Runner) {
                         1, 3, 2,
                 }
 
-
                 // Textures
                 sprite_filename := cal.get_asset_path("images/sprite.png", context.temp_allocator)
 
@@ -150,7 +160,9 @@ callisto_destroy :: proc (app_memory: rawptr) {
         d := &app.device
         
         // gpu.texture_destroy(d, &app.render_target)
-        // gpu.swapchain_destroy(d, &app.swapchain)
+        gpu.vertex_shader_destroy(d, &app.vertex_shader)
+        gpu.fragment_shader_destroy(d, &app.fragment_shader)
+        gpu.swapchain_destroy(d, &app.swapchain)
         gpu.device_destroy(d)
 
         cal.window_destroy(&app.engine, &app.window)
