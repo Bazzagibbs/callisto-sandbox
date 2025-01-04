@@ -1,3 +1,4 @@
+echo off
 call shaders.bat
 if %errorlevel% neq 0 exit /b %errorlevel%
 

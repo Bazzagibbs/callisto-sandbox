@@ -8,6 +8,7 @@ import "core:math/linalg"
 import "core:math"
 import "core:os"
 import "core:fmt"
+import "core:slice"
 
 import "core:image"
 import "core:image/png"
@@ -17,32 +18,31 @@ import cal "callisto"
 import "callisto/gpu"
 
 App_Memory :: struct {
-        engine               : cal.Engine,
-        window               : cal.Window,
+        engine            : cal.Engine,
+        window            : cal.Window,
 
         // GPU (will likely be abstracted by engine)
-        device               : gpu.Device,
-        swapchain            : gpu.Swapchain,
-        render_target        : gpu.Texture,
-        compute_shader       : gpu.Shader,
-        compute_draw_cbuffer : gpu.Buffer,
-        sprite_tex           : gpu.Texture,
+        device            : gpu.Device,
+        swapchain         : gpu.Swapchain,
+        render_target     : gpu.Texture,
+        vertex_shader     : gpu.Shader,
+        fragment_shader   : gpu.Shader,
+        material_cbuffer  : gpu.Buffer,
+        sprite_tex        : gpu.Texture,
+
+        quad_mesh_pos     : gpu.Buffer,
+        quad_mesh_uv      : gpu.Buffer,
+        quad_mesh_indices : gpu.Buffer,
 
         // Application
-        stopwatch            : time.Stopwatch,
-        frame_count          : int,
+        stopwatch         : time.Stopwatch,
+        frame_count       : int,
 }
 
 
-Compute_Draw_Constants :: struct #align(16) #min_field_align(16) {
-        color  : [4]f32,
-        sprite : gpu.Texture_Reference,
-        target : gpu.Texture_Reference,
-}
-
-Vertex :: struct #packed {
-        position  : [3]f32,
-        tex_coord : [2]f16,
+Material_Constants :: struct #align(16) #min_field_align(16) {
+        tint : [4]f32,
+        diffuse : gpu.Texture_Reference,
 }
 
 
@@ -119,23 +119,130 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         // Create test shader
         {
-                shader_init_info := gpu.Shader_Init_Info {
-                        code  = #load("resources/shaders/compute_draw.spv"),
-                        stage = .Compute,
+                vert_init_info := gpu.Shader_Init_Info {
+                        code  = #load("resources/shaders/mesh.vertex.spv"),
+                        stage = .Vertex,
                 }
 
+                gpu.shader_init(d, &app.vertex_shader, &vert_init_info)
+                
+                frag_init_info := gpu.Shader_Init_Info {
+                        code  = #load("resources/shaders/mesh.fragment.spv"),
+                        stage = .Fragment,
+                }
 
-                gpu.shader_init(d, &app.compute_shader, &shader_init_info)
+                gpu.shader_init(d, &app.fragment_shader, &frag_init_info)
+
         }
 
         // Create constant buffer
         {
                 cbufs_init_info := gpu.Buffer_Init_Info {
-                        size = size_of(Compute_Draw_Constants),
+                        size = size_of(Material_Constants),
                         usage = {.Storage, .Transfer_Dst, .Addressable},
                 }
                 
-                gpu.buffer_init(d, &app.compute_draw_cbuffer, &cbufs_init_info)
+                gpu.buffer_init(d, &app.material_cbuffer, &cbufs_init_info)
+        }
+
+
+        // Create quad mesh 
+        {
+                // This could be done into a single buffer, then create refs out of them
+                pos_data := [][3]f32 {
+                        {-0.5, 0.5, 0},
+                        {-0.5, -0.5, 0},
+                        {0.5, -0.5, 0},
+                        {0.5, 0.5, 0},
+                }
+
+                pos_init_info := gpu.Buffer_Init_Info {
+                        size               = slice.size(pos_data),
+                        usage              = {.Vertex, .Transfer_Dst},
+                        queue_usage        = {.Graphics},
+                        memory_access_type = .Device_Read_Only,
+                }
+
+                gpu.buffer_init(d, &app.quad_mesh_pos, &pos_init_info)
+
+                
+                uv_data := [][2]f16 {
+                        {0, 0},
+                        {0, 1},
+                        {1, 1},
+                        {1, 0},
+                }
+
+                uv_init_info := gpu.Buffer_Init_Info {
+                        size               = slice.size(uv_data),
+                        usage              = {.Vertex, .Transfer_Dst},
+                        queue_usage        = {.Graphics},
+                        memory_access_type = .Device_Read_Only,
+                }
+                
+                gpu.buffer_init(d, &app.quad_mesh_uv, &uv_init_info)
+
+
+                index_data := []u16 {
+                        0, 1, 2,
+                        1, 3, 2,
+                }
+                
+                index_init_info := gpu.Buffer_Init_Info {
+                        size               = slice.size(index_data),
+                        usage              = {.Vertex, .Transfer_Dst},
+                        queue_usage        = {.Graphics},
+                        memory_access_type = .Device_Read_Only,
+                }
+                
+                gpu.buffer_init(d, &app.quad_mesh_indices, &index_init_info)
+
+                log.warn(slice.size(pos_data))
+                log.warn(slice.size(uv_data))
+                log.warn(slice.size(index_data))
+
+                staging : gpu.Buffer
+                staging_info := gpu.Buffer_Init_Info {
+                        size               = slice.size(pos_data) + slice.size(uv_data) + slice.size(index_data),
+                        usage              = {.Storage, .Transfer_Src},
+                        queue_usage        = {.Graphics, .Compute_Sync},
+                        memory_access_type = .Staging,
+                }
+                gpu.buffer_init(d, &staging, &staging_info)
+
+                cb: ^gpu.Command_Buffer
+                gpu.immediate_command_buffer_get(d, &cb)
+                gpu.command_buffer_begin(d, cb)
+
+                pos_upload := gpu.Buffer_Upload_Info {
+                        size = slice.size(pos_data),
+                        src_offset = 0,
+                        dst_offset = 0,
+                        data = raw_data(pos_data),
+                }
+                gpu.cmd_upload_buffer(d, cb, &staging, &app.quad_mesh_pos, &pos_upload)
+
+                uv_upload := gpu.Buffer_Upload_Info {
+                        size = slice.size(uv_data),
+                        src_offset = pos_upload.src_offset + pos_upload.size,
+                        dst_offset = 0,
+                        data = raw_data(uv_data),
+                }
+                gpu.cmd_upload_buffer(d, cb, &staging, &app.quad_mesh_uv, &uv_upload)
+
+
+                index_upload := gpu.Buffer_Upload_Info {
+                        size = slice.size(uv_data),
+                        src_offset = uv_upload.src_offset + uv_upload.size,
+                        dst_offset = 0,
+                        data = raw_data(index_data),
+                }
+                gpu.cmd_upload_buffer(d, cb, &staging, &app.quad_mesh_indices, &index_upload)
+
+                gpu.command_buffer_end(d, cb)
+                gpu.immediate_command_buffer_submit(d, cb)
+
+                gpu.buffer_destroy(d, &staging)
         }
 
 
@@ -166,7 +273,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 // Prepare staging buffer
                 staging : gpu.Buffer
                 staging_info := gpu.Buffer_Init_Info {
-                        size               = u64(len(pixels)),
+                        size               = len(pixels),
                         usage              = {.Storage, .Transfer_Src},
                         queue_usage        = {.Graphics, .Compute_Sync},
                         memory_access_type = .Staging,
@@ -179,7 +286,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 gpu.command_buffer_begin(d, upload_buffer)
 
                 upload_info := gpu.Texture_Upload_Info {
-                        size = u64(len(pixels)),
+                        size = len(pixels),
                         data = raw_data(pixels),
                 }
                
@@ -228,9 +335,16 @@ callisto_destroy :: proc (app_memory: rawptr) {
         
         gpu.device_wait_for_idle(&app.device)
 
+
+        gpu.buffer_destroy(d, &app.quad_mesh_pos)
+        gpu.buffer_destroy(d, &app.quad_mesh_uv)
+        gpu.buffer_destroy(d, &app.quad_mesh_indices)
+
         gpu.texture_destroy(d, &app.sprite_tex)
-        gpu.buffer_destroy(d, &app.compute_draw_cbuffer)
-        gpu.shader_destroy(d, &app.compute_shader)
+
+        gpu.buffer_destroy(d, &app.material_cbuffer)
+        gpu.shader_destroy(d, &app.vertex_shader)
+        gpu.shader_destroy(d, &app.fragment_shader)
         gpu.texture_destroy(d, &app.render_target)
         gpu.swapchain_destroy(d, &app.swapchain)
         gpu.device_destroy(d)
@@ -302,39 +416,67 @@ callisto_loop :: proc (app_memory: rawptr) {
                 after_src_stages  = {},
                 before_dst_stages = {.Color_Target_Output},
                 src_layout        = .Undefined,
-                dst_layout        = .General,
+                dst_layout        = .Target,
                 src_access        = {},
                 dst_access        = {.Memory_Write},
         }
         gpu.cmd_transition_texture(d, cb, rt, &transition_rt_to_color_target)
 
         // Render to the intermediate HDR texture using compute
-        gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
+        // gpu.cmd_clear_color_texture(d, cb, rt, {0, 0, 0.5, 1})
         
         // Update dynamic constant buffers
-        constant_data := Compute_Draw_Constants {
-                color  = {(1 + math.sin(f32(app.frame_count) / 100)) / 2, 1, 1, 1},
-                sprite = gpu.texture_get_reference_sampled(d, &app.sprite_tex),
-                target = gpu.texture_get_reference_storage(&app.device, &app.render_target),
+        constant_data := Material_Constants {
+                tint    = {(1 + math.sin(f32(app.frame_count) / 100)) / 2, 1, 1, 1},
+                diffuse = gpu.texture_get_reference(d, &app.sprite_tex),
         }
 
         update_info := gpu.Buffer_Upload_Info {
-                size       = size_of(Compute_Draw_Constants),
+                size       = size_of(Material_Constants),
                 dst_offset = 0,
                 data       = &constant_data,
         }
-        gpu.cmd_update_buffer(d, cb, &app.compute_draw_cbuffer, &update_info)
+        gpu.cmd_update_buffer(d, cb, &app.material_cbuffer, &update_info)
 
+
+        rt_attachment_info := gpu.Texture_Attachment_Info {
+                texture_view   = gpu.texture_get_full_view(d, &app.render_target),
+                texture_layout = .Target,
+                load_op        = .Clear,
+                store_op       = .Store,
+                clear_value    = {color={0, 0, 0.4, 1}},
+        }
+
+        rt_extent := gpu.texture_get_extent(d, &app.render_target)
+        render_info := gpu.Render_Begin_Info {
+                render_area = {0, 0, rt_extent.x, rt_extent.y},
+                layer_count     = 1,
+                color_textures  = {},
+                depth_texture   = nil,
+                stencil_texture = nil,
+        }
+       
+        gpu.cmd_begin_render(d, cb, &render_info)
 
         // Set constant buffer
-        cbuf_ref := gpu.buffer_get_reference(d, &app.compute_draw_cbuffer, size_of(Compute_Draw_Constants), 0)
-        gpu.cmd_set_constant_buffer_0(d, cb, &cbuf_ref)
+        gpu.cmd_set_constant_buffer(d, cb, .Material, gpu.buffer_get_reference(d, &app.material_cbuffer))
 
-        gpu.cmd_bind_shader(d, cb, &app.compute_shader)
+        // Bind shaders
+        gpu.cmd_bind_vertex_shader(d, cb, &app.vertex_shader)
+        gpu.cmd_bind_fragment_shader(d, cb, &app.fragment_shader)
 
-        target_extent := gpu.texture_get_extent(d, &app.render_target)
-        workgroups := [2]u32 {u32(math.ceil(f32(target_extent.x) / 16.0)), u32(math.ceil(f32(target_extent.y) / 16.0))}
-        gpu.cmd_dispatch(d, cb, {workgroups.x, workgroups.y, 1})
+        // Bind mesh buffers
+        vertex_buffer_bind_infos := []gpu.Vertex_Buffer_Bind_Info {
+                {.Position,    gpu.buffer_get_reference(d,&app.quad_mesh_pos)},
+                {.Tex_Coord_0, gpu.buffer_get_reference(d,&app.quad_mesh_uv)},
+        }
+        gpu.cmd_bind_vertex_buffers(d, cb, vertex_buffer_bind_infos)
+        gpu.cmd_bind_index_buffer(d, cb, gpu.buffer_get_reference(d, &app.quad_mesh_indices), 6, .U16)
+
+
+        gpu.cmd_draw(d, cb)
+
+        gpu.cmd_end_render(d, cb)
 
 
         // Prepare RT -> Swapchain transfer
@@ -384,6 +526,8 @@ callisto_loop :: proc (app_memory: rawptr) {
         gpu.command_buffer_submit(d, cb)
         gpu.swapchain_present(d, sc)
 
+
+        cal.exit()
         app.frame_count += 1
 }
 
