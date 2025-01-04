@@ -4,8 +4,11 @@ A sandbox project for the development of the [Callisto Engine](https://github.co
 
 ## Build from source
 
+> [!Note]
+> Slangc is included with the Vulkan SDK. If you already have the SDK installed, you may skip step 2.
+
 1. Install the [Odin SDK](https://odin-lang.org/docs/install/)
-2. Install a [Vulkan SDK](https://vulkan.lunarg.com/)
+2. Install the [Slang Compiler](https://github.com/shader-slang/slang/releases) and add it to your path.
 3. Clone this repository:
 ```sh
 git clone --recursive https://github.com/Bazzagibbs/callisto-sandbox.git
