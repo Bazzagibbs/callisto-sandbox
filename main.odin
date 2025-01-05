@@ -18,25 +18,26 @@ import cal "callisto"
 import "callisto/gpu"
 
 App_Memory :: struct {
-        engine            : cal.Engine,
-        window            : cal.Window,
+        engine              : cal.Engine,
+        window              : cal.Window,
 
         // GPU (will likely be abstracted by engine)
-        device            : gpu.Device,
-        swapchain         : gpu.Swapchain,
-        // render_target     : gpu.Texture,
-        vertex_shader     : gpu.Vertex_Shader,
-        fragment_shader   : gpu.Fragment_Shader,
-        // material_cbuffer  : gpu.Buffer,
-        // sprite_tex        : gpu.Texture,
+        device              : gpu.Device,
+        swapchain           : gpu.Swapchain,
+        // render_target    : gpu.Texture,
+        vertex_shader       : gpu.Vertex_Shader,
+        fragment_shader     : gpu.Fragment_Shader,
+        // material_cbuffer : gpu.Buffer,
+        // sprite_tex       : gpu.Texture,
         //
-        quad_mesh_pos     : gpu.Buffer,
-        quad_mesh_uv      : gpu.Buffer,
-        quad_mesh_indices : gpu.Buffer,
+        quad_mesh_pos       : gpu.Buffer,
+        quad_mesh_uv        : gpu.Buffer,
+        quad_mesh_indices   : gpu.Buffer,
 
         // Application
-        stopwatch         : time.Stopwatch,
-        frame_count       : int,
+        stopwatch           : time.Stopwatch,
+        frame_count         : int,
+        resized             : bool,
 }
 
 
@@ -231,7 +232,8 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
                 // Handle these
                 log.info(e.event)
                 #partial switch we in e.event {
-                case cal.Window_Closed:
+                case cal.Window_Resized:
+                        app.resized = true
                 }
         }
 
@@ -243,9 +245,16 @@ callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool)
 callisto_loop :: proc (app_memory: rawptr) {
         mem.free_all(context.temp_allocator)
 
+
         app : ^App_Memory = (^App_Memory)(app_memory)
         d  := &app.device
         sc := &app.swapchain
+        
+        if app.resized {
+                gpu.swapchain_resize(d, sc, {0, 0})
+                app.resized = false
+        }
+
         // rt := &app.render_target
         rt := &sc.render_target_view
 
