@@ -30,9 +30,9 @@ App_Memory :: struct {
         // material_cbuffer  : gpu.Buffer,
         // sprite_tex        : gpu.Texture,
         //
-        // quad_mesh_pos     : gpu.Buffer,
-        // quad_mesh_uv      : gpu.Buffer,
-        // quad_mesh_indices : gpu.Buffer,
+        quad_mesh_pos     : gpu.Buffer,
+        quad_mesh_uv      : gpu.Buffer,
+        quad_mesh_indices : gpu.Buffer,
 
         // Application
         stopwatch         : time.Stopwatch,
@@ -131,7 +131,16 @@ callisto_init :: proc (runner: ^cal.Runner) {
                         {0.5, 0.5, 0},
                 }
 
+                pos_info := gpu.Buffer_Create_Info {
+                        size         = slice.size(pos_data),
+                        stride       = size_of(f32) * 3,
+                        initial_data = raw_data(pos_data),
+                        access       = .Device_Immutable,
+                        usage        = {.Vertex},
+                }
+                app.quad_mesh_pos, _ = gpu.buffer_create(d, &pos_info)
                 
+               
                 uv_data := [][2]f16 {
                         {0, 0},
                         {0, 1},
@@ -139,10 +148,29 @@ callisto_init :: proc (runner: ^cal.Runner) {
                         {1, 0},
                 }
 
-                index_data := []u16 {
-                        0, 1, 2,
-                        1, 3, 2,
+                uv_info := gpu.Buffer_Create_Info {
+                        size         = slice.size(uv_data),
+                        stride       = size_of(f16) * 2,
+                        initial_data = raw_data(uv_data),
+                        access       = .Device_Immutable,
+                        usage        = {.Vertex},
                 }
+                app.quad_mesh_uv, _ = gpu.buffer_create(d, &uv_info)
+
+
+                index_data := []u16 {
+                        0, 2, 1,
+                        0, 3, 2,
+                }
+
+                index_info := gpu.Buffer_Create_Info {
+                        size         = slice.size(index_data),
+                        stride       = size_of(f16) * 1,
+                        initial_data = raw_data(index_data),
+                        access       = .Device_Immutable,
+                        usage        = {.Index},
+                }
+                app.quad_mesh_indices, _ = gpu.buffer_create(d, &index_info)
 
                 // Textures
                 sprite_filename := cal.get_asset_path("images/sprite.png", context.temp_allocator)
@@ -160,6 +188,11 @@ callisto_destroy :: proc (app_memory: rawptr) {
         d := &app.device
         
         // gpu.texture_destroy(d, &app.render_target)
+
+        gpu.buffer_destroy(d, &app.quad_mesh_pos)
+        gpu.buffer_destroy(d, &app.quad_mesh_uv)
+        gpu.buffer_destroy(d, &app.quad_mesh_indices)
+
         gpu.vertex_shader_destroy(d, &app.vertex_shader)
         gpu.fragment_shader_destroy(d, &app.fragment_shader)
         gpu.swapchain_destroy(d, &app.swapchain)
@@ -212,9 +245,37 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         app : ^App_Memory = (^App_Memory)(app_memory)
         d  := &app.device
-        // sc := &app.swapchain
+        sc := &app.swapchain
         // rt := &app.render_target
+        rt := &sc.render_target_view
 
+        cb := &d.immediate_command_buffer
+       
+        gpu.command_buffer_begin(d, cb)
+        viewports := []gpu.Viewport_Info {{
+                rect = {0, 0, sc.resolution.x, sc.resolution.y},
+                min_depth = 0,
+                max_depth = 1,
+        }}
+
+        gpu.cmd_clear_render_target(cb, rt, {0, 0.4, 0.4, 1})
+
+        gpu.cmd_set_viewports(cb, viewports)
+
+        gpu.cmd_set_vertex_shader(cb, &app.vertex_shader)
+        gpu.cmd_set_fragment_shader(cb, &app.fragment_shader)
+
+        gpu.cmd_set_vertex_buffers(cb, {&app.quad_mesh_pos, &app.quad_mesh_uv})
+        gpu.cmd_set_index_buffer(cb, &app.quad_mesh_indices)
+
+        gpu.cmd_set_render_targets(cb, {&sc.render_target_view}, nil)
+        gpu.cmd_draw(cb)
+
+
+        gpu.command_buffer_end(d, cb)
+        gpu.command_buffer_submit(d, cb)
+
+        gpu.swapchain_present(d, sc)
 
         // cal.exit()
         app.frame_count += 1

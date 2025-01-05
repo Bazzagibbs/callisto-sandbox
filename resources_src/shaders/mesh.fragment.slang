@@ -7,11 +7,12 @@ struct V2F {
         half2 tex_coord : TEXCOORD;
 };
 
-Sampler2D diffuse : register(t0);
+// Sampler2D diffuse : register(t0);
 
 [shader("fragment")]
 float4 fragment_main(V2F input) : SV_Target {
-        float4 color = diffuse.Sample(input.tex_coord);
-        color *= color;
+//        float4 color = diffuse.Sample(input.tex_coord);
+//        color *= color;
+        float4 color = float4(input.tex_coord.x, input.tex_coord.y, 0, 1);
         return color;
 }
