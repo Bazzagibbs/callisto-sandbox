@@ -20,8 +20,8 @@ import "callisto/gpu"
 
 // TODO:
 
-// - textures (+ render targets)
 // - samplers
+// - texture views
 
 // - Change `*_init` procs to `*_create -> *`
 // - Remove `Maybe()` from window create info
