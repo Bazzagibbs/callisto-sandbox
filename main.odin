@@ -17,33 +17,48 @@ import "core:bytes"
 import cal "callisto"
 import "callisto/gpu"
 
+
+// TODO:
+
+// - textures (+ render targets)
+// - samplers
+
+// - Change `*_init` procs to `*_create -> *`
+// - Remove `Maybe()` from window create info
+
+// at this point it should be possible to do engine stuff
+// - mesh asset
+// - render passes / compositor
+
+
 App_Memory :: struct {
-        engine              : cal.Engine,
-        window              : cal.Window,
+        engine            : cal.Engine,
+        window            : cal.Window,
 
         // GPU (will likely be abstracted by engine)
-        device              : gpu.Device,
-        swapchain           : gpu.Swapchain,
-        // render_target    : gpu.Texture,
-        vertex_shader       : gpu.Vertex_Shader,
-        fragment_shader     : gpu.Fragment_Shader,
-        // material_cbuffer : gpu.Buffer,
-        // sprite_tex       : gpu.Texture,
+        device            : gpu.Device,
+        swapchain         : gpu.Swapchain,
+        // render_target  : gpu.Texture,
+        vertex_shader     : gpu.Vertex_Shader,
+        fragment_shader   : gpu.Fragment_Shader,
+        camera_cbuffer    : gpu.Buffer,
+        // sprite_tex     : gpu.Texture,
         //
-        quad_mesh_pos       : gpu.Buffer,
-        quad_mesh_uv        : gpu.Buffer,
-        quad_mesh_indices   : gpu.Buffer,
+        quad_mesh_pos     : gpu.Buffer,
+        quad_mesh_uv      : gpu.Buffer,
+        quad_mesh_indices : gpu.Buffer,
 
         // Application
-        stopwatch           : time.Stopwatch,
-        frame_count         : int,
-        resized             : bool,
+        stopwatch         : time.Stopwatch,
+        frame_count       : int,
+        tick_begin        : time.Tick,
+        elapsed           : f32,
+        resized           : bool,
 }
 
 
-Material_Constants :: struct #align(16) #min_field_align(16) {
-        tint : [4]f32,
-        // diffuse : gpu.Texture_Reference,
+Camera_Constants :: struct #align(16) #min_field_align(16) {
+        view : matrix[4,4]f32,
 }
 
 
@@ -55,6 +70,8 @@ callisto_init :: proc (runner: ^cal.Runner) {
         app := new(App_Memory)
 
         time.stopwatch_start(&app.stopwatch)
+
+        app.tick_begin = time.tick_now()
 
         // ENGINE
         {
@@ -118,6 +135,20 @@ callisto_init :: proc (runner: ^cal.Runner) {
                         code = #load("resources/shaders/mesh.fragment.dxbc"),
                 }
                 app.fragment_shader, _ = gpu.fragment_shader_create(d, &fs_info)
+        }
+
+        // Constant buffers
+        {
+                initial_data := Camera_Constants{}
+
+                camera_buffer_create_info := gpu.Buffer_Create_Info {
+                        size         = size_of(Camera_Constants),
+                        stride       = size_of(Camera_Constants),
+                        initial_data = &initial_data,
+                        access       = .Host_To_Device, // Dynamic per-frame constant buffer
+                        usage        = {.Constant},
+                }
+                app.camera_cbuffer, _ = gpu.buffer_create(d, &camera_buffer_create_info)
         }
 
 
@@ -190,6 +221,8 @@ callisto_destroy :: proc (app_memory: rawptr) {
         
         // gpu.texture_destroy(d, &app.render_target)
 
+        gpu.buffer_destroy(d, &app.camera_cbuffer)
+
         gpu.buffer_destroy(d, &app.quad_mesh_pos)
         gpu.buffer_destroy(d, &app.quad_mesh_uv)
         gpu.buffer_destroy(d, &app.quad_mesh_indices)
@@ -249,11 +282,13 @@ callisto_loop :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
         d  := &app.device
         sc := &app.swapchain
-        
+
         if app.resized {
                 gpu.swapchain_resize(d, sc, {0, 0})
                 app.resized = false
         }
+        
+        app.elapsed = f32(time.duration_seconds(time.tick_since(app.tick_begin)))
 
         // rt := &app.render_target
         rt := &sc.render_target_view
@@ -276,6 +311,15 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         gpu.cmd_set_vertex_buffers(cb, {&app.quad_mesh_pos, &app.quad_mesh_uv})
         gpu.cmd_set_index_buffer(cb, &app.quad_mesh_indices)
+
+
+        camera_data := Camera_Constants {
+                view = linalg.matrix4_translate_f32({0, math.sin(app.elapsed) * 0.2, 0})
+        }
+
+        gpu.cmd_update_constant_buffer(cb, &app.camera_cbuffer, &camera_data)
+
+        gpu.cmd_set_constant_buffers(cb, {.Vertex}, 0, {&app.camera_cbuffer})
 
         gpu.cmd_set_render_targets(cb, {&sc.render_target_view}, nil)
         gpu.cmd_draw(cb)
