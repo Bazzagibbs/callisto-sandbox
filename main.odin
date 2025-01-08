@@ -42,11 +42,15 @@ App_Memory :: struct {
         vertex_shader     : gpu.Vertex_Shader,
         fragment_shader   : gpu.Fragment_Shader,
         camera_cbuffer    : gpu.Buffer,
-        // sprite_tex     : gpu.Texture,
-        //
+        sprite_tex        : gpu.Texture2D,
+        sprite_tex_view   : gpu.Texture_View,
+        sampler           : gpu.Sampler,
+        
         quad_mesh_pos     : gpu.Buffer,
         quad_mesh_uv      : gpu.Buffer,
         quad_mesh_indices : gpu.Buffer,
+
+
 
         // Application
         stopwatch         : time.Stopwatch,
@@ -151,6 +155,23 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 app.camera_cbuffer, _ = gpu.buffer_create(d, &camera_buffer_create_info)
         }
 
+        // Samplers
+        {
+                sampler_info := gpu.Sampler_Create_Info {
+                        min_filter     = .Linear,
+                        mag_filter     = .Linear,
+                        mip_filter     = .Linear,
+                        max_anisotropy = .None,
+                        min_lod        = gpu.min_lod_UNCLAMPED,
+                        max_lod        = gpu.max_lod_UNCLAMPED,
+                        lod_bias       = 0,
+                        address_mode   = .Border,
+                        border_color   = .Black_Opaque,
+                }
+
+                app.sampler, _ = gpu.sampler_create(d, &sampler_info)
+        }
+
 
 
         // Upload read-only resources
@@ -209,7 +230,25 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
                 // Load image data from disk
                 sprite_image, _ := image.load_from_file(sprite_filename, {.alpha_add_if_missing}, context.temp_allocator)
-                pixels := bytes.buffer_to_bytes(&sprite_image.pixels)
+                pixels          := bytes.buffer_to_bytes(&sprite_image.pixels)
+
+                sprite_info := gpu.Texture2D_Create_Info {
+                        resolution            = {sprite_image.width, sprite_image.height},
+                        mip_levels            = 1,
+                        multisample           = .None,
+                        format                = .R8G8B8A8_UNORM,
+                        access                = .Device_Immutable,
+                        usage                 = {.Shader_Resource},
+                        allow_generate_mips   = false,
+                        initial_data = {{
+                                data = pixels, 
+                                row_size = sprite_image.width * (sprite_image.depth / 8 * 4),
+                        }},
+                }
+                app.sprite_tex, _ = gpu.texture2d_create(d, &sprite_info)
+
+                // pass nil info to create a view of the full texture
+                app.sprite_tex_view, _ = gpu.texture_view_create(d, &app.sprite_tex, nil)
         }
 }
 
@@ -219,16 +258,18 @@ callisto_destroy :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
         d := &app.device
         
-        // gpu.texture_destroy(d, &app.render_target)
 
         gpu.buffer_destroy(d, &app.camera_cbuffer)
 
+        gpu.texture_view_destroy(d, &app.sprite_tex_view)
+        gpu.texture2d_destroy(d, &app.sprite_tex)
         gpu.buffer_destroy(d, &app.quad_mesh_pos)
         gpu.buffer_destroy(d, &app.quad_mesh_uv)
         gpu.buffer_destroy(d, &app.quad_mesh_indices)
 
         gpu.vertex_shader_destroy(d, &app.vertex_shader)
         gpu.fragment_shader_destroy(d, &app.fragment_shader)
+        gpu.sampler_destroy(d, &app.sampler)
         gpu.swapchain_destroy(d, &app.swapchain)
         gpu.device_destroy(d)
 
@@ -302,6 +343,8 @@ callisto_loop :: proc (app_memory: rawptr) {
                 max_depth = 1,
         }}
 
+        gpu.cmd_set_samplers(cb, {.Vertex, .Fragment}, 0, {&app.sampler})
+
         gpu.cmd_clear_render_target(cb, rt, {0, 0.4, 0.4, 1})
 
         gpu.cmd_set_viewports(cb, viewports)
@@ -316,12 +359,13 @@ callisto_loop :: proc (app_memory: rawptr) {
         camera_data := Camera_Constants {
                 view = linalg.matrix4_translate_f32({0, math.sin(app.elapsed) * 0.2, 0})
         }
-
         gpu.cmd_update_constant_buffer(cb, &app.camera_cbuffer, &camera_data)
 
         gpu.cmd_set_constant_buffers(cb, {.Vertex}, 0, {&app.camera_cbuffer})
+        gpu.cmd_set_texture_views(cb, {.Fragment}, 0, {&app.sprite_tex_view})
 
         gpu.cmd_set_render_targets(cb, {&sc.render_target_view}, nil)
+
         gpu.cmd_draw(cb)
 
 
