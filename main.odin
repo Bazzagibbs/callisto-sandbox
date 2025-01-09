@@ -20,7 +20,6 @@ import "callisto/gpu"
 
 // TODO:
 
-// - Change `*_init` procs to `*_create -> *`
 // - Remove `Maybe()` from window create info
 
 // at this point it should be possible to do engine stuff
@@ -71,27 +70,27 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         // ENGINE
         {
-                engine_init_info := cal.Engine_Init_Info {
+                engine_info := cal.Engine_Create_Info {
                         runner          = runner,
                         app_memory      = app,
                         icon            = nil,
                         event_behaviour = .Before_Loop,
                 }
 
-                _ = cal.engine_init(&app.engine, &engine_init_info)
+                app.engine, _ = cal.engine_create(&engine_info)
         }
 
 
         // WINDOW
         {
-                window_init_info := cal.Window_Init_Info {
+                window_info := cal.Window_Create_Info {
                         name     = "Callisto Sandbox - Main Window",
                         style    = cal.Window_Style_Flags_DEFAULT,
                         position = nil,
                         size     = nil,
                 }
 
-                _ = cal.window_init(&app.engine, &app.window, &window_init_info)
+                app.window, _ = cal.window_create(&app.engine, &window_info)
         }
 
 
