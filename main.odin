@@ -20,9 +20,6 @@ import "callisto/gpu"
 
 // TODO:
 
-// - samplers
-// - texture views
-
 // - Change `*_init` procs to `*_create -> *`
 // - Remove `Maybe()` from window create info
 
@@ -62,7 +59,9 @@ App_Memory :: struct {
 
 
 Camera_Constants :: struct #align(16) #min_field_align(16) {
-        view : matrix[4,4]f32,
+        view      : matrix[4,4]f32,
+        proj      : matrix[4,4]f32,
+        view_proj : matrix[4,4]f32,
 }
 
 
@@ -355,9 +354,10 @@ callisto_loop :: proc (app_memory: rawptr) {
         gpu.cmd_set_vertex_buffers(cb, {&app.quad_mesh_pos, &app.quad_mesh_uv})
         gpu.cmd_set_index_buffer(cb, &app.quad_mesh_indices)
 
-
         camera_data := Camera_Constants {
-                view = linalg.matrix4_translate_f32({0, math.sin(app.elapsed) * 0.2, 0})
+                view = linalg.matrix4_translate_f32({0, math.sin(app.elapsed) * 0.2, 0}),
+                // proj = cal.matrix_orthographic(),
+                // view_proj,
         }
         gpu.cmd_update_constant_buffer(cb, &app.camera_cbuffer, &camera_data)
 
