@@ -35,10 +35,20 @@ App_Memory :: struct {
         // GPU (will likely be abstracted by engine)
         device            : gpu.Device,
         swapchain         : gpu.Swapchain,
+        
+        blend_opaque      : gpu.Blend_State,
+        blend_transparent : gpu.Blend_State,
+
+        depth_state       : gpu.Depth_Stencil_State,
+        depth_texture     : gpu.Texture2D,
+        depth_view        : gpu.Depth_Stencil_View,
+
         // render_target  : gpu.Texture,
         vertex_shader     : gpu.Vertex_Shader,
         fragment_shader   : gpu.Fragment_Shader,
+
         camera_cbuffer    : gpu.Buffer,
+
         sprite_tex        : gpu.Texture2D,
         sprite_tex_view   : gpu.Texture_View,
         sampler           : gpu.Sampler,
@@ -59,9 +69,9 @@ App_Memory :: struct {
 
 
 Camera_Constants :: struct #align(16) #min_field_align(16) {
-        view      : matrix[4,4]f32,
-        proj      : matrix[4,4]f32,
-        view_proj : matrix[4,4]f32,
+        view     : matrix[4,4]f32,
+        proj     : matrix[4,4]f32,
+        viewproj : matrix[4,4]f32,
 }
 
 
@@ -142,7 +152,11 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         // Constant buffers
         {
-                initial_data := Camera_Constants{}
+                initial_data := Camera_Constants{
+                        view     = linalg.identity(matrix[4,4]f32),
+                        proj     = linalg.identity(matrix[4,4]f32),
+                        viewproj = linalg.identity(matrix[4,4]f32),
+                }
 
                 camera_buffer_create_info := gpu.Buffer_Create_Info {
                         size         = size_of(Camera_Constants),
@@ -354,10 +368,14 @@ callisto_loop :: proc (app_memory: rawptr) {
         gpu.cmd_set_vertex_buffers(cb, {&app.quad_mesh_pos, &app.quad_mesh_uv})
         gpu.cmd_set_index_buffer(cb, &app.quad_mesh_indices)
 
+
+        cam_view := linalg.matrix4_translate_f32({0, math.sin(app.elapsed) * 0.2, 0})
+        cam_proj := cal.matrix4_orthographic(2, f32(sc.resolution.x) / f32(sc.resolution.y), 0, 1000)
+
         camera_data := Camera_Constants {
-                view = linalg.matrix4_translate_f32({0, math.sin(app.elapsed) * 0.2, 0}),
-                // proj = cal.matrix_orthographic(),
-                // view_proj,
+                view     = cam_view,
+                proj     = cam_proj,
+                viewproj = cam_proj * cam_view,
         }
         gpu.cmd_update_constant_buffer(cb, &app.camera_cbuffer, &camera_data)
 
