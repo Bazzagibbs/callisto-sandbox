@@ -6,6 +6,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:bytes"
+import "core:log"
 
 import cal "callisto"
 import "callisto/gpu"
@@ -26,6 +27,7 @@ Graphics_Memory :: struct {
         fragment_shader   : gpu.Fragment_Shader,
 
         camera_cbuffer    : gpu.Buffer,
+        model_cbuffers    : [3]gpu.Buffer,
 
         sprite_tex        : gpu.Texture2D,
         sprite_tex_view   : gpu.Texture_View,
@@ -34,6 +36,19 @@ Graphics_Memory :: struct {
         quad_mesh_pos     : gpu.Buffer,
         quad_mesh_uv      : gpu.Buffer,
         quad_mesh_indices : gpu.Buffer,
+}
+
+
+Camera_Constants :: struct #align(16) #min_field_align(16) {
+        view     : matrix[4,4]f32,
+        proj     : matrix[4,4]f32,
+        viewproj : matrix[4,4]f32,
+}
+
+Model_Constants :: struct #align(16) #min_field_align(16) {
+        model     : matrix[4,4]f32,
+        modelview : matrix[4,4]f32,
+        mvp       : matrix[4,4]f32,
 }
 
 graphics_init :: proc(app: ^App_Memory) {
@@ -55,6 +70,24 @@ graphics_init :: proc(app: ^App_Memory) {
                 }
                 gmem.swapchain, _ = gpu.swapchain_create(d, &swapchain_create_info)
                 sc = &gmem.swapchain
+
+
+                depth_create_info := gpu.Texture2D_Create_Info {
+                        resolution = gmem.swapchain.resolution,
+                        mip_levels = 1,
+                        format     = .D32_FLOAT,
+                        access     = .Device_General,
+                        usage      = {.Depth_Stencil_Target},
+                }
+                gmem.depth_texture, _ = gpu.texture2d_create(d, &depth_create_info)
+
+                depth_view_info := gpu.Depth_Stencil_View_Create_Info {
+                        format      = .D32_FLOAT,
+                        mip_level   = 0,
+                        multisample = false,
+                        array       = false,
+                }
+                gmem.depth_view, _    = gpu.depth_stencil_view_create(d, &gmem.depth_texture, &depth_view_info)
         }
 
 
@@ -77,7 +110,7 @@ graphics_init :: proc(app: ^App_Memory) {
 
         // Constant buffers
         {
-                initial_data := Camera_Constants{
+                camera_initial_data := Camera_Constants{
                         view     = linalg.identity(matrix[4,4]f32),
                         proj     = linalg.identity(matrix[4,4]f32),
                         viewproj = linalg.identity(matrix[4,4]f32),
@@ -86,14 +119,33 @@ graphics_init :: proc(app: ^App_Memory) {
                 camera_buffer_create_info := gpu.Buffer_Create_Info {
                         size         = size_of(Camera_Constants),
                         stride       = size_of(Camera_Constants),
-                        initial_data = &initial_data,
+                        initial_data = &camera_initial_data,
                         access       = .Host_To_Device, // Dynamic per-frame constant buffer
                         usage        = {.Constant},
                 }
                 gmem.camera_cbuffer, _ = gpu.buffer_create(d, &camera_buffer_create_info)
+                
+
+                model_initial_data := Model_Constants{
+                        model     = linalg.identity(matrix[4,4]f32),
+                        modelview = linalg.identity(matrix[4,4]f32),
+                        mvp       = linalg.identity(matrix[4,4]f32),
+                }
+
+                model_buffer_create_info := gpu.Buffer_Create_Info {
+                        size         = size_of(Model_Constants),
+                        stride       = size_of(Model_Constants),
+                        initial_data = &model_initial_data,
+                        access       = .Host_To_Device, // Dynamic per-frame constant buffer
+                        usage        = {.Constant},
+                }
+
+                for i in 0..<len(gmem.model_cbuffers) {
+                        gmem.model_cbuffers[i], _ = gpu.buffer_create(d, &model_buffer_create_info)
+                }
         }
 
-        // Samplers
+        // Dynamic state
         {
                 sampler_info := gpu.Sampler_Create_Info {
                         min_filter     = .Linear,
@@ -108,18 +160,56 @@ graphics_init :: proc(app: ^App_Memory) {
                 }
 
                 gmem.sampler, _ = gpu.sampler_create(d, &sampler_info)
+
+
+                depth_info := gpu.Depth_Stencil_State_Create_Info {
+                        depth_enable       = true,
+                        depth_compare_op   = .Greater,
+                        depth_write_enable = true,
+                        // no stencil
+                }
+
+                gmem.depth_state, _ = gpu.depth_stencil_state_create(d, &depth_info)
+
+                opaque_info := gpu.Blend_State_Create_Info {
+                        independent_blends = false,
+                        render_target_blends = {{
+                                blend_enable = false,
+                                color_write_mask = gpu.Color_Component_Flags_ALL,
+                        }}
+                }
+
+                gmem.blend_opaque, _ = gpu.blend_state_create(d, &opaque_info)
+
+
+                transparent_info := gpu.Blend_State_Create_Info {
+                        independent_blends = false,
+                        render_target_blends = {{
+                                blend_enable           = true,
+                                src_color_blend_factor = .Src_Alpha,
+                                dst_color_blend_factor = .One_Minus_Src_Alpha,
+                                color_blend_op         = .Add,
+                                src_alpha_blend_factor = .Src_Alpha,
+                                dst_alpha_blend_factor = .Dst_Alpha,
+                                alpha_blend_op         = .Add,
+                                color_write_mask       = gpu.Color_Component_Flags_ALL,
+                        }}
+                }
+
+                gmem.blend_transparent, _ = gpu.blend_state_create(d, &transparent_info)
         }
 
 
+                // z-up, -y forward, x-right?
 
         // Upload read-only resources
         {
                 // Meshes
                 pos_data := [][3]f32 {
-                        {-0.5, 0.5, 0},
-                        {-0.5, -0.5, 0},
-                        {0.5, -0.5, 0},
-                        {0.5, 0.5, 0},
+                        {-0.5, 0, 0.5},
+                        {-0.5, 0, -0.5,},
+                        {0.5, 0, -0.5},
+                        {0.5, 0, 0.5},
                 }
 
                 pos_info := gpu.Buffer_Create_Info {
@@ -198,6 +288,10 @@ graphics_destroy :: proc(app: ^App_Memory) {
 
         gpu.buffer_destroy(d, &gmem.camera_cbuffer)
 
+        for &buf in gmem.model_cbuffers {
+                gpu.buffer_destroy(d, &buf)
+        }
+
         gpu.texture_view_destroy(d, &gmem.sprite_tex_view)
         gpu.texture2d_destroy(d, &gmem.sprite_tex)
         gpu.buffer_destroy(d, &gmem.quad_mesh_pos)
@@ -206,6 +300,12 @@ graphics_destroy :: proc(app: ^App_Memory) {
 
         gpu.vertex_shader_destroy(d, &gmem.vertex_shader)
         gpu.fragment_shader_destroy(d, &gmem.fragment_shader)
+
+        gpu.depth_stencil_view_destroy(d, &gmem.depth_view)
+        gpu.texture2d_destroy(d, &gmem.depth_texture)
+        gpu.blend_state_destroy(d, &gmem.blend_opaque)
+        gpu.blend_state_destroy(d, &gmem.blend_transparent)
+        gpu.depth_stencil_state_destroy(d, &gmem.depth_state)
         gpu.sampler_destroy(d, &gmem.sampler)
         gpu.swapchain_destroy(d, &gmem.swapchain)
         gpu.device_destroy(d)
@@ -218,7 +318,18 @@ graphics_render :: proc(app: ^App_Memory) {
         sc := &gmem.swapchain
 
         if app.resized {
+                gpu.texture2d_destroy(d, &gmem.depth_texture)
                 gpu.swapchain_resize(d, sc, {0, 0})
+                
+                depth_create_info := gpu.Texture2D_Create_Info {
+                        resolution = gmem.swapchain.resolution,
+                        mip_levels = 1,
+                        format     = .D32_FLOAT,
+                        access     = .Device_General,
+                        usage      = {.Depth_Stencil_Target},
+                }
+                gmem.depth_texture, _ = gpu.texture2d_create(d, &depth_create_info)
+
                 app.resized = false
         }
 
@@ -234,9 +345,15 @@ graphics_render :: proc(app: ^App_Memory) {
                 max_depth = 1,
         }}
 
+        gpu.cmd_set_blend_state(cb, &gmem.blend_opaque)
+        gpu.cmd_set_depth_stencil_state(cb, &gmem.depth_state)
         gpu.cmd_set_samplers(cb, {.Vertex, .Fragment}, 0, {&gmem.sampler})
 
+
         gpu.cmd_clear_render_target(cb, rt, {0, 0.4, 0.4, 1})
+        gpu.cmd_clear_depth_stencil(cb, &gmem.depth_view, {.Depth}, 0, 0)
+        
+        gpu.cmd_set_render_targets(cb, {rt}, &gmem.depth_view)
 
         gpu.cmd_set_viewports(cb, viewports)
 
@@ -249,9 +366,11 @@ graphics_render :: proc(app: ^App_Memory) {
 
         aspect := f32(sc.resolution.x) / f32(sc.resolution.y)
 
-        cam_view := linalg.matrix4_translate_f32({app.camera_pos.x, app.camera_pos.y, app.camera_pos.z})
+        cam_transform := linalg.matrix4_translate_f32(app.camera_pos) * linalg.matrix4_from_euler_angles_zx(app.camera_yaw, app.camera_pitch)
+        cam_view := linalg.inverse(cam_transform)
         // cam_proj := cal.matrix4_orthographic(2, aspect, 0, 1000)
         cam_proj := cal.matrix4_perspective(60 * math.RAD_PER_DEG, aspect, 0.01, 10000)
+        cam_viewproj := cam_proj * cam_view
 
         camera_data := Camera_Constants {
                 view     = cam_view,
@@ -259,12 +378,36 @@ graphics_render :: proc(app: ^App_Memory) {
                 viewproj = cam_proj * cam_view,
         }
         gpu.cmd_update_constant_buffer(cb, &gmem.camera_cbuffer, &camera_data)
-
         gpu.cmd_set_constant_buffers(cb, {.Vertex}, 0, {&gmem.camera_cbuffer})
+
         gpu.cmd_set_texture_views(cb, {.Fragment}, 0, {&gmem.sprite_tex_view})
 
-        gpu.cmd_set_render_targets(cb, {&sc.render_target_view}, nil)
+        model_data : Model_Constants
+        // x
+        model_data.model     = linalg.matrix4_from_trs_f32({0.5, 0, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.modelview = cam_view * model_data.model
+        model_data.mvp       = cam_proj * model_data.modelview
 
+        gpu.cmd_update_constant_buffer(cb, &gmem.model_cbuffers[0], &model_data)
+        gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[0]})
+        gpu.cmd_draw(cb)
+
+        // y
+        model_data.model     = linalg.matrix4_from_trs_f32({0, 0.5, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.modelview = cam_view * model_data.model
+        model_data.mvp       = cam_proj * model_data.modelview
+
+        gpu.cmd_update_constant_buffer(cb, &gmem.model_cbuffers[1], &model_data)
+        gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[1]})
+        gpu.cmd_draw(cb)
+
+        // z
+        model_data.model     = linalg.matrix4_from_trs_f32({0, 0, 0.5}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.modelview = cam_view * model_data.model
+        model_data.mvp       = cam_proj * model_data.modelview
+
+        gpu.cmd_update_constant_buffer(cb, &gmem.model_cbuffers[2], &model_data)
+        gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[2]})
         gpu.cmd_draw(cb)
 
 
@@ -273,3 +416,5 @@ graphics_render :: proc(app: ^App_Memory) {
 
         gpu.swapchain_present(d, sc)
 }
+
+

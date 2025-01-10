@@ -1,31 +1,31 @@
 package callisto_sandbox
 
-import "base:runtime"
 import "core:log"
 import "core:time"
 import "core:mem"
 import "core:math/linalg"
 import "core:math"
-import "core:os"
-import "core:fmt"
-import "core:slice"
-
-import "core:image"
-import "core:image/png"
-import "core:bytes"
+import "core:math/linalg/glsl"
 
 import cal "callisto"
-import "callisto/gpu"
 
 
 // TODO:
-
-// - Remove `Maybe()` from window create info
 
 // at this point it should be possible to do engine stuff
 // - mesh asset
 // - render passes / compositor
 
+
+Input_Actions :: bit_set[Input_Action]
+Input_Action :: enum {
+        Forward,
+        Backward,
+        Left,
+        Right,
+        Up,
+        Down,
+}
 
 App_Memory :: struct {
         engine                 : cal.Engine,
@@ -40,20 +40,15 @@ App_Memory :: struct {
         elapsed                : f32,
         resized                : bool,
         
-        lmb_held               : bool,
+        rmb_held               : bool,
 
         camera_pixels_to_world : f32,
+        camera_yaw             : f32,
+        camera_pitch           : f32,
         camera_pos             : [3]f32,
         cursor_pos             : [2]f32,
-        lmb_down_camera_pos    : [2]f32,
-        lmb_down_cursor_pos    : [2]f32,
-}
 
-
-Camera_Constants :: struct #align(16) #min_field_align(16) {
-        view     : matrix[4,4]f32,
-        proj     : matrix[4,4]f32,
-        viewproj : matrix[4,4]f32,
+        actions                : Input_Actions,
 }
 
 
@@ -86,15 +81,15 @@ callisto_init :: proc (runner: ^cal.Runner) {
                 window_info := cal.Window_Create_Info {
                         name     = "Callisto Sandbox - Main Window",
                         style    = cal.Window_Style_Flags_DEFAULT,
-                        position = nil,
-                        size     = nil,
+                        position = cal.Window_Position_AUTO,
+                        size     = cal.Window_Size_AUTO,
                 }
 
                 app.window, _ = cal.window_create(&app.engine, &window_info)
         }
 
 
-        app.camera_pos = {5, 3, 5}
+        app.camera_pos = {0, -1, 1}
 
         // GPU
         graphics_init(app)
@@ -119,36 +114,31 @@ callisto_destroy :: proc (app_memory: rawptr) {
 // Alternatively, by initializing the engine with `event_behaviour = .Manual`, you may pump the
 // queue just before input is required with `callisto.event_pump()` to reduce input delay.
 @(export)
-callisto_event :: proc (event: cal.Event, app_memory: rawptr) -> (handled: bool) {
+callisto_event :: proc (app_memory: rawptr, event: cal.Event) -> (handled: bool) {
         app := (^App_Memory)(app_memory)
+
+        // Events may be dispatched to several layers
+        // if ui_event_handler(app, event) { return }
+        // if gameplay_event_handler(app, event) { return }
 
         switch e in event {
         case cal.Runner_Event: 
                 log.info(e)
+
         case cal.Input_Event:
                 #partial switch ie in e.event {
                 case cal.Input_Button:
-                        if ie.motion == .Down {
-                                #partial switch ie.source {
-                                case .Esc: cal.exit(.Ok)
-                                case .Mouse_Left: on_lmb_down(app, ie)
-                                }
-                        } else if ie.motion == .Up {
-                                #partial switch ie.source {
-                                case .Mouse_Left: on_lmb_up(app, ie)
-                                }
-
-                        }
+                        on_button(app, ie)
 
                         return true
 
                 case cal.Input_Vector2:
-                        if ie.source == .Mouse_Position_Cursor {
-                                on_cursor_moved(app, ie)
+                        if ie.source == .Mouse_Move_Raw {
+                                on_mouse_raw_input(app, ie)
                         }
                 }
+
         case cal.Window_Event:
-                // Handle these
                 #partial switch we in e.event {
                 case cal.Window_Resized:
                         app.resized = true
@@ -167,6 +157,7 @@ callisto_loop :: proc (app_memory: rawptr) {
 
         app.elapsed = f32(time.duration_seconds(time.tick_since(app.tick_begin)))
 
+        update(app)
         graphics_render(app)
 
         // cal.exit() // exit after one frame
@@ -174,24 +165,87 @@ callisto_loop :: proc (app_memory: rawptr) {
 
 // ==================================
 
-on_cursor_moved :: proc(app: ^App_Memory, event: cal.Input_Vector2) {
-        // cursor moved event holds the absolute position of the mouse cursor on the screen.
-        app.cursor_pos = event.value
-        if app.lmb_held {
-                delta_pixels  := app.cursor_pos - app.lmb_down_cursor_pos
-                delta_world   := delta_pixels / (f32(app.graphics_memory.swapchain.resolution.y) * 0.5)
-                delta_world.y *= -1
+on_mouse_raw_input :: proc(app: ^App_Memory, event: cal.Input_Vector2) {
+        sensitivity :: 0.005
 
-                app.camera_pos.xy  =  app.lmb_down_camera_pos + delta_world
+        if app.rmb_held {
+        app.camera_yaw   += event.value.x * sensitivity
+        app.camera_pitch += event.value.y * sensitivity
         }
 }
 
-on_lmb_down :: proc(app: ^App_Memory, event: cal.Input_Button) {
-        app.lmb_down_cursor_pos = app.cursor_pos
-        app.lmb_down_camera_pos = app.camera_pos.xy
-        app.lmb_held = true
+
+on_mouse_button :: proc(app: ^App_Memory, event: cal.Input_Button) {
+        #partial switch event.motion {
+        case .Down:
+
+        case .Up:
+        }
 }
 
-on_lmb_up :: proc(app: ^App_Memory, event: cal.Input_Button) {
-        app.lmb_held = false
+on_button :: proc(app: ^App_Memory, event: cal.Input_Button) {
+        if event.motion == .Down {
+                #partial switch event.source {
+                case .W: app.actions += {.Forward}
+                case .S: app.actions += {.Backward}
+                case .A: app.actions += {.Left}
+                case .D: app.actions += {.Right}
+                case .Q: app.actions += {.Down}
+                case .E: app.actions += {.Up}
+
+                case .Mouse_Right: app.rmb_held = true
+                
+                case .Esc: cal.exit(.Ok)
+                        
+                } 
+        } else {
+                #partial switch event.source {
+                case .W: app.actions -= {.Forward}
+                case .S: app.actions -= {.Backward}
+                case .A: app.actions -= {.Left}
+                case .D: app.actions -= {.Right}
+                case .Q: app.actions -= {.Down}
+                case .E: app.actions -= {.Up}
+
+                case .Mouse_Right: app.rmb_held = false
+                }
+        }
+}
+
+
+update :: proc(app: ^App_Memory) {
+        camera_move_speed :: 1
+
+        time.stopwatch_stop(&app.stopwatch)
+        delta_time := f32(time.duration_seconds(time.stopwatch_duration(app.stopwatch)))
+        time.stopwatch_reset(&app.stopwatch)
+        time.stopwatch_start(&app.stopwatch)
+
+        wish_dir: [3]f32
+
+        if .Forward in app.actions {
+                wish_dir.y += 1
+        }
+        if .Backward in app.actions {
+                wish_dir.y -= 1
+        }
+        if .Left in app.actions {
+                wish_dir.x -= 1
+        }
+        if .Right in app.actions {
+                wish_dir.x += 1
+        }
+        if .Up in app.actions {
+                wish_dir.z += 1
+        }
+        if .Down in app.actions {
+                wish_dir.z -= 1
+        }
+
+        wish_dir = linalg.clamp_length(wish_dir, 1)
+        // Transform wish dir into view space
+        view := linalg.matrix4_from_euler_angles_zx(app.camera_yaw, app.camera_pitch)
+        wish_dir = (view * [4]f32{wish_dir.x, wish_dir.y, wish_dir.z, 0}).xyz
+
+        app.camera_pos += wish_dir * (camera_move_speed * delta_time)
 }

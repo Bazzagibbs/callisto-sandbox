@@ -20,13 +20,20 @@ struct Camera_Constants {
         float4x4 viewproj;
 };
 
+struct Model_Constants {
+        float4x4 model;
+        float4x4 modelview;
+        float4x4 mvp;
+};
+
 ConstantBuffer<Camera_Constants> camera;
+ConstantBuffer<Model_Constants> model;
 // --------------------------
 
 [shader("vertex")]
 V2F vertex_main(Vertex vertex) {
         V2F v2f;
-        v2f.position  = mul(camera.viewproj, float4(vertex.position, 1));
+        v2f.position  = mul(model.mvp, float4(vertex.position, 1));
         v2f.tex_coord = vertex.tex_coord;
 
         return v2f;
