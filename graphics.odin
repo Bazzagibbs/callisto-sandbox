@@ -384,7 +384,7 @@ graphics_render :: proc(app: ^App_Memory) {
 
         model_data : Model_Constants
         // x
-        model_data.model     = linalg.matrix4_from_trs_f32({0.5, 0, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.model     = linalg.matrix4_from_trs_f32({1, 0, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
         model_data.modelview = cam_view * model_data.model
         model_data.mvp       = cam_proj * model_data.modelview
 
@@ -393,7 +393,7 @@ graphics_render :: proc(app: ^App_Memory) {
         gpu.cmd_draw(cb)
 
         // y
-        model_data.model     = linalg.matrix4_from_trs_f32({0, 0.5, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.model     = linalg.matrix4_from_trs_f32({0, 1, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
         model_data.modelview = cam_view * model_data.model
         model_data.mvp       = cam_proj * model_data.modelview
 
@@ -402,7 +402,7 @@ graphics_render :: proc(app: ^App_Memory) {
         gpu.cmd_draw(cb)
 
         // z
-        model_data.model     = linalg.matrix4_from_trs_f32({0, 0, 0.5}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.model     = linalg.matrix4_from_trs_f32({0, 0, 1}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
         model_data.modelview = cam_view * model_data.model
         model_data.mvp       = cam_proj * model_data.modelview
 
