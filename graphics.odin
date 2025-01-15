@@ -96,14 +96,14 @@ graphics_init :: proc(app: ^App_Memory) {
         {
                 // Vertex
                 vs_info := gpu.Vertex_Shader_Create_Info {
-                        code = #load("resources/shaders/mesh.vertex.dxbc"),
+                        code = #load("resources_imported/shaders/mesh.vert.dxbc"),
                         vertex_attributes = {.Position, .Tex_Coord_0},
                 }
                 gmem.vertex_shader, _ = gpu.vertex_shader_create(d, &vs_info)
 
                 // Fragment
                 fs_info := gpu.Fragment_Shader_Create_Info {
-                        code = #load("resources/shaders/mesh.fragment.dxbc"),
+                        code = #load("resources_imported/shaders/mesh.frag.dxbc"),
                 }
                 gmem.fragment_shader, _ = gpu.fragment_shader_create(d, &fs_info)
         }
@@ -254,11 +254,12 @@ graphics_init :: proc(app: ^App_Memory) {
                 gmem.quad_mesh_indices, _ = gpu.buffer_create(d, &index_info)
 
                 // Textures
-                sprite_filename := cal.get_asset_path("images/sprite.png", context.temp_allocator)
+                sprite_filename := cal.get_asset_path("textures/sprite.png", context.temp_allocator)
 
                 // Load image data from disk
-                sprite_image, _ := image.load_from_file(sprite_filename, {.alpha_add_if_missing}, context.temp_allocator)
-                pixels          := bytes.buffer_to_bytes(&sprite_image.pixels)
+                sprite_image, err := image.load_from_file(sprite_filename, {.alpha_add_if_missing}, context.temp_allocator)
+                assert(err == nil, "Failed to load image")
+                pixels            := bytes.buffer_to_bytes(&sprite_image.pixels)
 
                 sprite_info := gpu.Texture2D_Create_Info {
                         resolution            = {sprite_image.width, sprite_image.height},
