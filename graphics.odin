@@ -39,11 +39,6 @@ Graphics_Memory :: struct {
 }
 
 
-Camera_Constants :: struct #align(16) #min_field_align(16) {
-        view     : matrix[4,4]f32,
-        proj     : matrix[4,4]f32,
-        viewproj : matrix[4,4]f32,
-}
 
 Model_Constants :: struct #align(16) #min_field_align(16) {
         model     : matrix[4,4]f32,
@@ -200,8 +195,6 @@ graphics_init :: proc(app: ^App_Memory) {
         }
 
 
-                // z-up, -y forward, x-right?
-
         // Upload read-only resources
         {
                 // Meshes
@@ -330,6 +323,8 @@ graphics_render :: proc(app: ^App_Memory) {
                         usage      = {.Depth_Stencil_Target},
                 }
                 gmem.depth_texture, _ = gpu.texture2d_create(d, &depth_create_info)
+
+                app.camera_aspect = f32(sc.resolution.x) / f32(sc.resolution.y)
 
                 app.resized = false
         }

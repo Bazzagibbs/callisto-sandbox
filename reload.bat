@@ -1,3 +1,3 @@
 echo off
 
-py callisto\build.py reload
+odin run callisto\editor -- reload

@@ -8,6 +8,7 @@ import "core:math"
 import "core:math/linalg/glsl"
 
 import cal "callisto"
+import "callisto/config"
 
 
 // TODO:
@@ -33,6 +34,7 @@ App_Memory :: struct {
 
         // GPU (will likely be abstracted by engine)
         graphics_memory        : Graphics_Memory,
+        scene_memory           : Scene_Memory,
 
         // Application
         stopwatch              : time.Stopwatch,
@@ -42,6 +44,7 @@ App_Memory :: struct {
         
         rmb_held               : bool,
 
+        camera_aspect          : f32,
         camera_pixels_to_world : f32,
         camera_yaw             : f32,
         camera_pitch           : f32,
@@ -57,6 +60,8 @@ App_Memory :: struct {
 
 @(export)
 callisto_init :: proc (runner: ^cal.Runner) {
+        log.info(config.APP_NAME, ":", config.COMPANY_NAME)
+
         app := new(App_Memory)
 
         time.stopwatch_start(&app.stopwatch)
@@ -93,6 +98,9 @@ callisto_init :: proc (runner: ^cal.Runner) {
 
         // GPU
         graphics_init(app)
+        
+        // Scene
+        // scene_init(app)
 }
 
 
@@ -100,6 +108,7 @@ callisto_init :: proc (runner: ^cal.Runner) {
 callisto_destroy :: proc (app_memory: rawptr) {
         app : ^App_Memory = (^App_Memory)(app_memory)
 
+        // scene_destroy(app)
         graphics_destroy(app)
 
         cal.window_destroy(&app.engine, &app.window)
@@ -158,6 +167,8 @@ callisto_loop :: proc (app_memory: rawptr) {
         app.elapsed = f32(time.duration_seconds(time.tick_since(app.tick_begin)))
 
         update(app)
+
+        // scene_render(app)
         graphics_render(app)
 
         // cal.exit() // exit after one frame
@@ -244,7 +255,7 @@ update :: proc(app: ^App_Memory) {
 
         wish_dir = linalg.clamp_length(wish_dir, 1)
         // Transform wish dir into view space
-        view := linalg.matrix4_from_euler_angles_zx(app.camera_yaw, app.camera_pitch)
+        view := cal.matrix4_from_euler_angles_yaw_pitch(app.camera_yaw, app.camera_pitch)
         wish_dir = (view * [4]f32{wish_dir.x, wish_dir.y, wish_dir.z, 0}).xyz
 
         app.camera_pos += wish_dir * (camera_move_speed * delta_time)
