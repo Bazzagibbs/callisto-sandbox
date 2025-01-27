@@ -365,7 +365,7 @@ graphics_render :: proc(app: ^App_Memory) {
         cam_transform := linalg.matrix4_translate_f32(app.camera_pos) * linalg.matrix4_from_euler_angles_zx(app.camera_yaw, app.camera_pitch)
         cam_view := linalg.inverse(cam_transform)
         // cam_proj := cal.matrix4_orthographic(2, aspect, 0, 1000)
-        cam_proj := cal.matrix4_perspective(60 * math.RAD_PER_DEG, aspect, 0.01, 10000)
+        cam_proj := cal.matrix4_perspective(60 * math.RAD_PER_DEG, aspect, 0.01, 10)
         cam_viewproj := cam_proj * cam_view
 
         camera_data := Camera_Constants {
@@ -379,6 +379,18 @@ graphics_render :: proc(app: ^App_Memory) {
         gpu.cmd_set_texture_views(cb, {.Fragment}, 0, {&gmem.sprite_tex_view})
 
         model_data : Model_Constants
+        
+        // z
+        model_data.model     = linalg.matrix4_from_trs_f32({0, 0, 1}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
+        model_data.modelview = cam_view * model_data.model
+        model_data.mvp       = cam_proj * model_data.modelview
+
+        gpu.cmd_update_constant_buffer(cb, &gmem.model_cbuffers[2], &model_data)
+        gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[2]})
+        gpu.cmd_draw(cb)
+
+
+
         // x
         model_data.model     = linalg.matrix4_from_trs_f32({1, 0, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
         model_data.modelview = cam_view * model_data.model
@@ -387,7 +399,7 @@ graphics_render :: proc(app: ^App_Memory) {
         gpu.cmd_update_constant_buffer(cb, &gmem.model_cbuffers[0], &model_data)
         gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[0]})
         gpu.cmd_draw(cb)
-
+        
         // y
         model_data.model     = linalg.matrix4_from_trs_f32({0, 1, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
         model_data.modelview = cam_view * model_data.model
@@ -397,14 +409,6 @@ graphics_render :: proc(app: ^App_Memory) {
         gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[1]})
         gpu.cmd_draw(cb)
 
-        // z
-        model_data.model     = linalg.matrix4_from_trs_f32({0, 0, 1}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1})
-        model_data.modelview = cam_view * model_data.model
-        model_data.mvp       = cam_proj * model_data.modelview
-
-        gpu.cmd_update_constant_buffer(cb, &gmem.model_cbuffers[2], &model_data)
-        gpu.cmd_set_constant_buffers(cb, {.Vertex}, 1, {&gmem.model_cbuffers[2]})
-        gpu.cmd_draw(cb)
 
 
         gpu.command_buffer_end(d, cb)

@@ -9,12 +9,13 @@ import "callisto/gpu"
 Scene_Memory :: struct {
         test_construct   : cal.Construct,
 
+        test_mesh : cal.Mesh,
         // constructs     : [dynamic]cal.Construct,
-        meshes         : [dynamic]cal.Mesh,
-        materials      : [dynamic]cal.Material,
-        textures       : [dynamic]cal.Texture2D,
-        pipelines      : [dynamic]cal.Shader_Pipeline,
-        mesh_renderers : [dynamic]cal.Mesh_Renderer,
+        // meshes         : [dynamic]cal.Mesh,
+        // materials      : [dynamic]cal.Material,
+        // textures       : [dynamic]cal.Texture2D,
+        // pipelines      : [dynamic]cal.Shader_Pipeline,
+        // mesh_renderers : [dynamic]cal.Mesh_Renderer,
 
         // GPU (to abstract)
         camera_cbuffer   : gpu.Buffer,
@@ -48,15 +49,16 @@ scene_destroy :: proc(app: ^App_Memory) {
 
         // Destroy construct + refcount
 
-        delete(s.meshes)
-        delete(s.materials)
-        delete(s.textures)
-        delete(s.pipelines)
-        delete(s.mesh_renderers)
+        // delete(s.meshes)
+        // delete(s.materials)
+        // delete(s.textures)
+        // delete(s.pipelines)
+        // delete(s.mesh_renderers)
 }
 
 
 scene_render :: proc(app: ^App_Memory) {
+        /*
         s    := &app.scene_memory
         gmem := &app.graphics_memory
         cb   := &gmem.device.immediate_command_buffer
@@ -107,4 +109,5 @@ scene_render :: proc(app: ^App_Memory) {
                         
                 }
         }
+        */
 }
