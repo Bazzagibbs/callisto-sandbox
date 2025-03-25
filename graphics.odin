@@ -323,6 +323,14 @@ graphics_render :: proc(app: ^App_Memory) {
                         usage      = {.Depth_Stencil_Target},
                 }
                 gmem.depth_texture, _ = gpu.texture2d_create(d, &depth_create_info)
+                
+                depth_view_info := gpu.Depth_Stencil_View_Create_Info {
+                        format      = .D32_FLOAT,
+                        mip_level   = 0,
+                        multisample = false,
+                        array       = false,
+                }
+                gmem.depth_view, _    = gpu.depth_stencil_view_create(d, &gmem.depth_texture, &depth_view_info)
 
                 app.camera_aspect = f32(sc.resolution.x) / f32(sc.resolution.y)
 
