@@ -1,262 +1,140 @@
 package callisto_sandbox
 
+import "base:runtime"
+import "core:os"
+import "core:c"
+import "core:fmt"
 import "core:log"
 import "core:time"
-import "core:mem"
-import "core:math/linalg"
-import "core:math"
-import "core:math/linalg/glsl"
-
-import cal "callisto"
 import "callisto/config"
 
+import sdl "vendor:sdl3"
 
-// TODO:
-
-// at this point it should be possible to do engine stuff
-// - mesh asset
-// - render passes / compositor
+import im "callisto/imgui"
 
 
-Input_Actions :: bit_set[Input_Action]
-Input_Action :: enum {
-        Forward,
-        Backward,
-        Left,
-        Right,
-        Up,
-        Down,
-}
+App_Data :: struct {
+        window     : ^sdl.Window,
+        device     : ^sdl.GPUDevice,
+        shader     : ^sdl.GPUShader,
+        ui_context : ^im.Context,
 
-App_Memory :: struct {
-        engine                 : cal.Engine,
-        window                 : cal.Window,
+        tick_begin : time.Tick,
+        tick_frame : time.Tick,
+        delta      : f32, // Seconds
 
-        // GPU (will likely be abstracted by engine)
-        graphics_memory        : Graphics_Memory,
-        scene_memory           : Scene_Memory,
 
-        // Application
-        stopwatch              : time.Stopwatch,
-        tick_begin             : time.Tick,
-        elapsed                : f32,
-        resized                : bool,
-        
-        rmb_held               : bool,
-
-        camera_aspect          : f32,
-        camera_pixels_to_world : f32,
-        camera_yaw             : f32,
-        camera_pitch           : f32,
-        camera_pos             : [3]f32,
-        cursor_pos             : [2]f32,
-
-        actions                : Input_Actions,
+        ui_inspector_open : bool,
+        ui_hierarchy_open : bool,
 }
 
 
-// ==================================
-// Implement these in every project
 
 @(export)
-callisto_init :: proc (runner: ^cal.Runner) {
-        log.info(config.APP_NAME, ":", config.COMPANY_NAME)
+callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
+        app_data^ = new(App_Data)
+        a : ^App_Data = cast(^App_Data)(app_data^)
+       
 
-        app := new(App_Memory)
-
-        time.stopwatch_start(&app.stopwatch)
-
-        app.tick_begin = time.tick_now()
-
-        // ENGINE
-        {
-                engine_info := cal.Engine_Create_Info {
-                        runner          = runner,
-                        app_memory      = app,
-                        icon            = nil,
-                        event_behaviour = .Before_Loop,
-                }
-
-                app.engine, _ = cal.engine_create(&engine_info)
+        subsystems := sdl.InitFlags {
+                .VIDEO,
+                .GAMEPAD,
+                // .AUDIO,
         }
+
+        ok := sdl.Init(subsystems)
+        assert_sdl(ok)
+
+        sdl.SetHint(sdl.HINT_GPU_DRIVER, "direct3d12")
 
 
         // WINDOW
-        {
-                window_info := cal.Window_Create_Info {
-                        name     = "Callisto Sandbox - Main Window",
-                        style    = cal.Window_Style_Flags_DEFAULT,
-                        position = cal.Window_Position_AUTO,
-                        size     = cal.Window_Size_AUTO,
-                }
+        a.window = sdl.CreateWindow("Hello, World", 1920, 1080, {.HIGH_PIXEL_DENSITY})
+        assert_sdl(a.window)
 
-                app.window, _ = cal.window_create(&app.engine, &window_info)
-        }
-
-
-        app.camera_pos = {0, -1, 1}
 
         // GPU
-        graphics_init(app)
+        a.device = sdl.CreateGPUDevice({.SPIRV, .MSL, .DXIL}, false, "")
+        assert_sdl(a.device)
+
+        ok = sdl.ClaimWindowForGPUDevice(a.device, a.window)
+        assert_sdl(ok)
+
+        ok = sdl.SetGPUSwapchainParameters(a.device, a.window, .SDR, .MAILBOX)
+        assert_sdl(ok)
+
         
-        // Scene
-        // scene_init(app)
+        // UI
+        a.ui_context, ok = ui_init(a.device, a.window)
+        assert(ok)
+
+        // TIME
+        a.tick_begin = time.tick_now()
+        a.tick_frame = a.tick_begin
+
+        return .CONTINUE
 }
+
 
 
 @(export)
-callisto_destroy :: proc (app_memory: rawptr) {
-        app : ^App_Memory = (^App_Memory)(app_memory)
+callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
+        a : ^App_Data = (^App_Data)(app_data)
 
-        // scene_destroy(app)
-        graphics_destroy(app)
+        _ = sdl.WaitForGPUIdle(a.device)
+        
+        // UI
+        ui_destroy(a.ui_context)
 
-        cal.window_destroy(&app.engine, &app.window)
-        cal.engine_destroy(&app.engine)
+        sdl.DestroyGPUDevice(a.device)
+        sdl.DestroyWindow(a.window)
 
-        free(app)
+        free(a)
 }
 
-
-// Communication from the platform layer happens here (window, input).
-// By default the event queue gets pumped automatically at the beginning of every frame.
-// Alternatively, by initializing the engine with `event_behaviour = .Manual`, you may pump the
-// queue just before input is required with `callisto.event_pump()` to reduce input delay.
-@(export)
-callisto_event :: proc (app_memory: rawptr, event: cal.Event) -> (handled: bool) {
-        app := (^App_Memory)(app_memory)
-
-        // Events may be dispatched to several layers
-        // if ui_event_handler(app, event) { return }
-        // if gameplay_event_handler(app, event) { return }
-
-        switch e in event {
-        case cal.Runner_Event: 
-                log.info(e)
-
-        case cal.Input_Event:
-                #partial switch ie in e.event {
-                case cal.Input_Button:
-                        on_button(app, ie)
-
-                        return true
-
-                case cal.Input_Vector2:
-                        if ie.source == .Mouse_Move_Raw {
-                                on_mouse_raw_input(app, ie)
-                        }
-                }
-
-        case cal.Window_Event:
-                #partial switch we in e.event {
-                case cal.Window_Resized:
-                        app.resized = true
-                }
-        }
-
-        return false
-}
 
 
 @(export)
-callisto_loop :: proc (app_memory: rawptr) {
-        app : ^App_Memory = (^App_Memory)(app_memory)
-
-        mem.free_all(context.temp_allocator)
-
-        app.elapsed = f32(time.duration_seconds(time.tick_since(app.tick_begin)))
-
-        update(app)
-
-        // scene_render(app)
-        graphics_render(app)
-
-        // cal.exit() // exit after one frame
-}
-
-// ==================================
-
-on_mouse_raw_input :: proc(app: ^App_Memory, event: cal.Input_Vector2) {
-        sensitivity :: 0.005
-
-        if app.rmb_held {
-        app.camera_yaw   += event.value.x * sensitivity
-        app.camera_pitch += event.value.y * sensitivity
+callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
+        if ui_process_event(event) {
+                return .CONTINUE
         }
+
+
+        #partial switch event.type {
+        case .QUIT:
+                sdl.Quit()
+                return .SUCCESS
+        }
+
+
+        return .CONTINUE
 }
 
 
-on_mouse_button :: proc(app: ^App_Memory, event: cal.Input_Button) {
-        #partial switch event.motion {
-        case .Down:
 
-        case .Up:
+@(export)
+callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
+        a : ^App_Data = cast(^App_Data)app_data
+        
+        // TIME
+        tick_now := time.tick_now()
+        a.delta = f32(time.duration_seconds(time.tick_diff(a.tick_frame, tick_now)))
+        a.tick_frame = tick_now
+
+        // BEGIN GPU
+        cb := sdl.AcquireGPUCommandBuffer(a.device)
+        rt : ^sdl.GPUTexture
+        _ = sdl.WaitAndAcquireGPUSwapchainTexture(cb, a.window, &rt, nil, nil)
+
+        if rt != nil {
+                // UI
+                ui_begin(a.ui_context)
+                ui_draw(a)
+                ui_end(cb, rt)
+
+                _ = sdl.SubmitGPUCommandBuffer(cb)
         }
-}
-
-on_button :: proc(app: ^App_Memory, event: cal.Input_Button) {
-        if event.motion == .Down {
-                #partial switch event.source {
-                case .W: app.actions += {.Forward}
-                case .S: app.actions += {.Backward}
-                case .A: app.actions += {.Left}
-                case .D: app.actions += {.Right}
-                case .Q: app.actions += {.Down}
-                case .E: app.actions += {.Up}
-
-                case .Mouse_Right: app.rmb_held = true
-                
-                case .Esc: cal.exit(.Ok)
-                        
-                } 
-        } else {
-                #partial switch event.source {
-                case .W: app.actions -= {.Forward}
-                case .S: app.actions -= {.Backward}
-                case .A: app.actions -= {.Left}
-                case .D: app.actions -= {.Right}
-                case .Q: app.actions -= {.Down}
-                case .E: app.actions -= {.Up}
-
-                case .Mouse_Right: app.rmb_held = false
-                }
-        }
-}
-
-
-update :: proc(app: ^App_Memory) {
-        camera_move_speed :: 1
-
-        time.stopwatch_stop(&app.stopwatch)
-        delta_time := f32(time.duration_seconds(time.stopwatch_duration(app.stopwatch)))
-        time.stopwatch_reset(&app.stopwatch)
-        time.stopwatch_start(&app.stopwatch)
-
-        wish_dir: [3]f32
-
-        if .Forward in app.actions {
-                wish_dir.y += 1
-        }
-        if .Backward in app.actions {
-                wish_dir.y -= 1
-        }
-        if .Left in app.actions {
-                wish_dir.x -= 1
-        }
-        if .Right in app.actions {
-                wish_dir.x += 1
-        }
-        if .Up in app.actions {
-                wish_dir.z += 1
-        }
-        if .Down in app.actions {
-                wish_dir.z -= 1
-        }
-
-        wish_dir = linalg.clamp_length(wish_dir, 1)
-        // Transform wish dir into view space
-        view := cal.matrix4_from_euler_angles_yaw_pitch(app.camera_yaw, app.camera_pitch)
-        wish_dir = (view * [4]f32{wish_dir.x, wish_dir.y, wish_dir.z, 0}).xyz
-
-        app.camera_pos += wish_dir * (camera_move_speed * delta_time)
+        // END GPU
+        return .CONTINUE
 }

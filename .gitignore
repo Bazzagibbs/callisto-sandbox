@@ -1,9 +1,5 @@
-/.vs/
-/.idea/
-*.sublime-*
-/out/
-
-# ols.json
-*.exe
-*.pdb
-*.rdi
+out/
+res/
+editor.exe
+editor.pdb
+imgui.ini

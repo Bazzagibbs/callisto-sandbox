@@ -1,3 +1,3 @@
-echo off
+@echo off
 
-odin run callisto\editor -- reload
+editor reload
