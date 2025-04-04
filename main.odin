@@ -14,18 +14,17 @@ import im "callisto/imgui"
 
 
 App_Data :: struct {
-        window     : ^sdl.Window,
-        device     : ^sdl.GPUDevice,
-        shader     : ^sdl.GPUShader,
-        ui_context : ^im.Context,
+        window        : ^sdl.Window,
+        device        : ^sdl.GPUDevice,
+        shader        : ^sdl.GPUShader,
+        ui_context    : ^im.Context,
 
-        tick_begin : time.Tick,
-        tick_frame : time.Tick,
-        delta      : f32, // Seconds
+        tick_begin    : time.Tick,
+        tick_frame    : time.Tick,
+        delta         : f32, // Seconds
 
-
-        ui_inspector_open : bool,
-        ui_hierarchy_open : bool,
+        graphics_data : Graphics_Data,
+        ui_data       : UI_Data,
 }
 
 
@@ -63,6 +62,11 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         ok = sdl.SetGPUSwapchainParameters(a.device, a.window, .SDR, .MAILBOX)
         assert_sdl(ok)
 
+
+        width, height : i32
+        _ = sdl.GetWindowSizeInPixels(a.window, &width, &height)
+        graphics_init(&a.graphics_data, a.device, {u32(width), u32(height)})
+
         
         // UI
         a.ui_context, ok = ui_init(a.device, a.window)
@@ -83,8 +87,9 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
 
         _ = sdl.WaitForGPUIdle(a.device)
         
-        // UI
         ui_destroy(a.ui_context)
+
+        graphics_destroy(&a.graphics_data, a.device)
 
         sdl.DestroyGPUDevice(a.device)
         sdl.DestroyWindow(a.window)
@@ -96,12 +101,22 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
 
 @(export)
 callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
+        a : ^App_Data = cast(^App_Data)app_data
+
         if ui_process_event(event) {
                 return .CONTINUE
         }
 
 
         #partial switch event.type {
+        case .WINDOW_RESIZED:
+                if a.device != nil {
+                        width, height : i32
+                        _ = sdl.GetWindowSizeInPixels(a.window, &width, &height)
+                        graphics_resize(&a.graphics_data, a.device, {u32(width), u32(height)})
+                        log.info("Window resized")
+                }
+
         case .QUIT:
                 sdl.Quit()
                 return .SUCCESS
@@ -128,10 +143,14 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
         _ = sdl.WaitAndAcquireGPUSwapchainTexture(cb, a.window, &rt, nil, nil)
 
         if rt != nil {
+                // GRAPHICS
+                graphics_draw(&a.graphics_data, cb, rt)
+
                 // UI
                 ui_begin(a.ui_context)
-                ui_draw(a)
+                ui_draw(&a.ui_data)
                 ui_end(cb, rt)
+
 
                 _ = sdl.SubmitGPUCommandBuffer(cb)
         }

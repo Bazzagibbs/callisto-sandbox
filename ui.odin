@@ -10,6 +10,11 @@ import im "callisto/imgui"
 import im_sdl "callisto/imgui/imgui_impl_sdl3"
 import im_sdlgpu "callisto/imgui/imgui_impl_sdlgpu3"
 
+UI_Data :: struct {
+        inspector_open : bool,
+        hierarchy_open : bool,
+}
+
 
 
 ui_init :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ctx: ^im.Context, ok: bool) {
@@ -105,7 +110,7 @@ ui_process_event :: proc(event: ^sdl.Event) -> bool {
 
 
 
-ui_draw :: proc(a: ^App_Data) {
+ui_draw :: proc(u: ^UI_Data) {
         im.DockSpaceOverViewport(0, im.GetMainViewport())
         if im.BeginMainMenuBar() {
                 if im.BeginMenu("File") {
@@ -115,11 +120,11 @@ ui_draw :: proc(a: ^App_Data) {
                 im.EndMainMenuBar()
         }
                 
-        if im.Begin("Level Hierarchy", &a.ui_hierarchy_open) {
+        if im.Begin("Level Hierarchy", &u.hierarchy_open) {
                 im.End()
         }
 
-        if im.Begin("Inspector", &a.ui_inspector_open) {
+        if im.Begin("Inspector", &u.inspector_open) {
                 im.End()
         }
 
