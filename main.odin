@@ -44,7 +44,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         ok := sdl.Init(subsystems)
         assert_sdl(ok)
 
-        sdl.SetHint(sdl.HINT_GPU_DRIVER, "direct3d12")
+        sdl.SetHint(sdl.HINT_GPU_DRIVER, "vulkan")
 
 
         // WINDOW
@@ -53,7 +53,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
 
 
         // GPU
-        a.device = sdl.CreateGPUDevice({.SPIRV, .MSL, .DXIL}, false, "")
+        a.device = sdl.CreateGPUDevice({.SPIRV, .MSL, .DXIL}, ODIN_DEBUG, "")
         assert_sdl(a.device)
 
         ok = sdl.ClaimWindowForGPUDevice(a.device, a.window)
@@ -63,9 +63,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         assert_sdl(ok)
 
 
-        width, height : i32
-        _ = sdl.GetWindowSizeInPixels(a.window, &width, &height)
-        graphics_init(&a.graphics_data, a.device, {u32(width), u32(height)})
+        graphics_init(&a.graphics_data, a.device, a.window)
 
         
         // UI
@@ -91,8 +89,9 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
 
         graphics_destroy(&a.graphics_data, a.device)
 
-        sdl.DestroyGPUDevice(a.device)
+        sdl.ReleaseWindowFromGPUDevice(a.device, a.window)
         sdl.DestroyWindow(a.window)
+        // sdl.DestroyGPUDevice(a.device) // I don't know where all these leaked resources are coming from
 
         free(a)
 }
@@ -111,9 +110,7 @@ callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
         #partial switch event.type {
         case .WINDOW_RESIZED:
                 if a.device != nil {
-                        width, height : i32
-                        _ = sdl.GetWindowSizeInPixels(a.window, &width, &height)
-                        graphics_resize(&a.graphics_data, a.device, {u32(width), u32(height)})
+                        graphics_resize(&a.graphics_data, a.device, a.window)
                         log.info("Window resized")
                 }
 

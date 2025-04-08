@@ -80,8 +80,8 @@ ui_end :: proc(cb: ^sdl.GPUCommandBuffer, render_target: ^sdl.GPUTexture) {
                 texture               = render_target,
                 mip_level             = 0,
                 layer_or_depth_plane  = 0,
-                clear_color           = {0.2, 0.2, 0.2, 1},
-                load_op               = .CLEAR,
+                // clear_color           = {0.2, 0.2, 0.2, 1},
+                load_op               = .LOAD,
                 store_op              = .STORE,
                 resolve_texture       = nil,
                 resolve_mip_level     = 0,
@@ -111,7 +111,7 @@ ui_process_event :: proc(event: ^sdl.Event) -> bool {
 
 
 ui_draw :: proc(u: ^UI_Data) {
-        im.DockSpaceOverViewport(0, im.GetMainViewport())
+        // im.DockSpaceOverViewport(0, im.GetMainViewport())
         if im.BeginMainMenuBar() {
                 if im.BeginMenu("File") {
                         im.EndMenu()
@@ -128,5 +128,9 @@ ui_draw :: proc(u: ^UI_Data) {
                 im.End()
         }
 
-        im.ShowDemoWindow()
+        // if im.Begin("Scene") {
+        //         im.GetWindowViewport()
+        //         im.End()
+        // }
+
 }
