@@ -6,6 +6,7 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:time"
+import cal "callisto"
 import "callisto/config"
 
 import sdl "vendor:sdl3"
@@ -25,6 +26,8 @@ App_Data :: struct {
 
         graphics_data : Graphics_Data,
         ui_data       : UI_Data,
+
+        scene         : cal.Scene,
 }
 
 
@@ -74,6 +77,19 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         a.tick_begin = time.tick_now()
         a.tick_frame = a.tick_begin
 
+        // SCENE
+        a.scene = cal.scene_create()
+        s := &a.scene
+
+        player_rig := cal.transform_create(s, "player rig")
+        cam        := cal.transform_create(s, "camera", player_rig)
+        cam2       := cal.transform_create(s, "camera", player_rig)
+        door       := cal.transform_create(s, "door")
+        door_data := cal.transform_get_data(s, door)
+        door_data.editor_state.use_hierarchy_color = true
+        door_data.editor_state.hierarchy_color = {0.6, 0.2, 0.2, 1}
+
+
         return .CONTINUE
 }
 
@@ -84,7 +100,9 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
         a : ^App_Data = (^App_Data)(app_data)
 
         _ = sdl.WaitForGPUIdle(a.device)
-        
+       
+        cal.scene_destroy(&a.scene)
+
         ui_destroy(a.ui_context)
 
         graphics_destroy(&a.graphics_data, a.device)
@@ -145,7 +163,7 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
                 // UI
                 ui_begin(a.ui_context)
-                ui_draw(&a.ui_data)
+                ui_draw(a, &a.ui_data)
                 ui_end(cb, rt)
 
 

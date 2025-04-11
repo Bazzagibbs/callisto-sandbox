@@ -2,9 +2,12 @@ package callisto_sandbox
 
 import "core:log"
 import "core:math"
+import "core:strings"
+import "core:math/linalg"
 
 import sdl "vendor:sdl3"
 
+import cal "callisto"
 import "callisto/fonts"
 import im "callisto/imgui"
 import im_sdl "callisto/imgui/imgui_impl_sdl3"
@@ -110,27 +113,148 @@ ui_process_event :: proc(event: ^sdl.Event) -> bool {
 
 
 
-ui_draw :: proc(u: ^UI_Data) {
-        // im.DockSpaceOverViewport(0, im.GetMainViewport())
+ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
+        im.DockSpaceOverViewport(0, im.GetMainViewport(), {.PassthruCentralNode})
         if im.BeginMainMenuBar() {
                 if im.BeginMenu("File") {
+                        // Add open/save etc.
                         im.EndMenu()
                 }
 
                 im.EndMainMenuBar()
         }
-                
-        if im.Begin("Level Hierarchy", &u.hierarchy_open) {
+        
+        hierarchy_window_flags : im.WindowFlags
+        if a.scene.editor_state.dirty {
+                hierarchy_window_flags += {.UnsavedDocument}
+        }
+        if im.Begin("Scene Hierarchy", &u.hierarchy_open, hierarchy_window_flags) {
+                ui_draw_scene_hierarchy(&a.scene)
                 im.End()
         }
 
         if im.Begin("Inspector", &u.inspector_open) {
+                ui_draw_inspector(&a.scene)
                 im.End()
         }
 
-        // if im.Begin("Scene") {
-        //         im.GetWindowViewport()
-        //         im.End()
-        // }
+
+}
+
+
+
+ui_draw_scene_hierarchy :: proc(s: ^cal.Scene) {
+        for root_node in s.transform_roots {
+                draw_transform_node(s, root_node)
+        }
+
+        draw_transform_node :: proc(s: ^cal.Scene, transform: cal.Transform) {
+                data := cal.transform_get_data(s, transform)
+                flags : im.TreeNodeFlags = { .OpenOnArrow, .SpanFullWidth, }
+
+                im.PushIDInt(i32(transform))
+
+                if len(data.children) == 0 {
+                        flags += {.Leaf }
+                }
+                
+                if s.editor_state.transform_selected_latest == transform {
+                        flags += {.Selected}
+                }
+
+                if data.editor_state.use_hierarchy_color {
+                        im.PushStyleColorImVec4(im.Col.Button, data.editor_state.hierarchy_color)
+                }
+
+
+                if im.TreeNodeEx(strings.unsafe_string_to_cstring(data.name), flags) {
+                        if data.editor_state.use_hierarchy_color {
+                                im.PopStyleColor()
+                        }
+
+                        if im.IsItemActivated() {
+                                s.editor_state.transform_selected_latest = transform
+                        }
+
+                        for child in data.children {
+                                draw_transform_node(s, child)
+                        }
+                        im.TreePop()
+                } 
+                else {
+                        if data.editor_state.use_hierarchy_color {
+                                im.PopStyleColor()
+                        }
+                }
+
+                im.PopID()
+
+        }
+}
+
+
+ui_draw_inspector :: proc(s: ^cal.Scene) {
+        if s.editor_state.transform_selected_latest == cal.TRANSFORM_NONE {
+                return
+        }
+
+        ui_draw_inspector_transform(s, s.editor_state.transform_selected_latest)
+        // Add inspector panels here
+}
+
+
+ui_draw_inspector_transform :: proc(s: ^cal.Scene, t: cal.Transform) {
+        if im.TreeNodeEx("Transform", {.DefaultOpen, .SpanFullWidth}) {
+                // POSITION 
+                {
+                        temp_pos := cal.transform_get_local_position(s, t)
+                        if im.DragFloat3("Position", &temp_pos, v_speed = 0.1, flags = {}) {
+                                cal.transform_set_local_position(s, t, temp_pos)
+                        }
+
+                        if im.IsItemDeactivatedAfterEdit() {
+                                log.info("Set local position:", cal.transform_get_name(s, t), ":", temp_pos)
+                                cal.scene_set_dirty(s)
+                                // TODO: commit to undo history
+                        }
+                }
+
+
+                // ROTATION - Inspector is in euler degrees
+                {
+                        temp_rot_quat := cal.transform_get_local_rotation(s, t)
+                        temp_rot_eul : [3]f32
+                        temp_rot_eul.x, temp_rot_eul.y, temp_rot_eul.z = linalg.euler_angles_from_quaternion_f32(temp_rot_quat, .XYZ) // Euler order might need to change when I decide on forward/up axes
+                        temp_rot_eul *= linalg.DEG_PER_RAD
+                        if im.DragFloat3("Rotation", &temp_rot_eul, v_speed = 0.1, flags = {}) {
+                                temp_rot_eul *= linalg.RAD_PER_DEG
+                                temp_rot_quat = linalg.quaternion_from_euler_angles_f32(expand_values(temp_rot_eul), .XYZ)
+                                cal.transform_set_local_rotation(s, t, temp_rot_quat)
+                        }
+
+                        if im.IsItemDeactivatedAfterEdit() {
+                                log.info("Set local rotation:", cal.transform_get_name(s, t), ":", temp_rot_eul)
+                                cal.scene_set_dirty(s)
+                                // TODO: commit to undo history
+                        }
+                }
+
+                // SCALE
+                {
+                        temp_scale := cal.transform_get_local_scale(s, t)
+                        if im.DragFloat3("Scale", &temp_scale, v_speed = 0.1, flags = {}) {
+                                cal.transform_set_local_scale(s, t, temp_scale)
+                        }
+
+                        if im.IsItemDeactivatedAfterEdit() {
+                                log.info("Set local scale:", cal.transform_get_name(s, t), ":", temp_scale)
+                                cal.scene_set_dirty(s)
+                                // TODO: commit to undo history
+                        }
+                }
+
+
+                im.TreePop()
+        }
 
 }
