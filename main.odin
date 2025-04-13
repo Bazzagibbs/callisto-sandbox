@@ -36,6 +36,8 @@ App_Data :: struct {
 callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         app_data^ = new(App_Data)
         a : ^App_Data = cast(^App_Data)(app_data^)
+        u := &a.ui_data
+        g := &a.graphics_data
        
 
         subsystems := sdl.InitFlags {
@@ -51,7 +53,11 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
 
 
         // WINDOW
-        a.window = sdl.CreateWindow("Hello, World", 1920, 1080, {.HIGH_PIXEL_DENSITY})
+        window_flags := sdl.WindowFlags {
+                .HIGH_PIXEL_DENSITY,
+                .RESIZABLE,
+        }
+        a.window = sdl.CreateWindow("Hello, World", 1920, 1080, window_flags)
         assert_sdl(a.window)
 
 
@@ -70,7 +76,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
 
         
         // UI
-        a.ui_context, ok = ui_init(a.device, a.window)
+        a.ui_context, ok = ui_init(u, a.device, a.window)
         assert(ok)
 
         // TIME
@@ -98,14 +104,16 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
 @(export)
 callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
         a : ^App_Data = (^App_Data)(app_data)
+        u := &a.ui_data
+        g := &a.graphics_data
 
         _ = sdl.WaitForGPUIdle(a.device)
        
         cal.scene_destroy(&a.scene)
 
-        ui_destroy(a.ui_context)
+        ui_destroy(u, a.ui_context)
 
-        graphics_destroy(&a.graphics_data, a.device)
+        graphics_destroy(g, a.device)
 
         sdl.ReleaseWindowFromGPUDevice(a.device, a.window)
         sdl.DestroyWindow(a.window)
@@ -154,17 +162,33 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
         // BEGIN GPU
         cb := sdl.AcquireGPUCommandBuffer(a.device)
-        rt : ^sdl.GPUTexture
-        _ = sdl.WaitAndAcquireGPUSwapchainTexture(cb, a.window, &rt, nil, nil)
+        framebuffer : ^sdl.GPUTexture
+        width, height: u32
+        _ = sdl.WaitAndAcquireGPUSwapchainTexture(cb, a.window, &framebuffer, &width, &height)
 
-        if rt != nil {
+        if framebuffer != nil {
+                g := &a.graphics_data
+                u := &a.ui_data
+
                 // GRAPHICS
-                graphics_draw(&a.graphics_data, cb, rt)
+                if a.ui_data.scene_view_open {
+                        graphics_draw(g, cb, g.render_texture)
+                }
 
+                u.scene_view_texture = g.render_texture
+
+                scene_view_dimensions_old := u.scene_view_dimensions
+                
                 // UI
-                ui_begin(a.ui_context)
-                ui_draw(a, &a.ui_data)
-                ui_end(cb, rt)
+                ui_begin(u, a.ui_context)
+                ui_draw(a, u)
+                ui_end(u, cb, framebuffer)
+
+                // Check if UI scene view window has changed size, rebuild render texture
+                if a.ui_data.scene_view_open && scene_view_dimensions_old != a.ui_data.scene_view_dimensions {
+                        dims := a.ui_data.scene_view_dimensions
+                        graphics_scene_view_resize(g, a.device, {u32(dims.x), u32(dims.y)})
+                }
 
 
                 _ = sdl.SubmitGPUCommandBuffer(cb)

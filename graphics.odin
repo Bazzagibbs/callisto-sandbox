@@ -22,6 +22,7 @@ check_sdl_ptr :: proc(ptr: rawptr, exp := #caller_expression(ptr), loc := #calle
 
 Graphics_Data :: struct {
         device: ^sdl.GPUDevice, // NOTE: not owned by this struct
+        window: ^sdl.Window,    // NOTE: not owned by this struct
 
         // CONSTANT BUFFERS
         constants_camera : ^sdl.GPUBuffer,
@@ -43,6 +44,7 @@ Graphics_Data :: struct {
         sampler          : ^sdl.GPUSampler,
 
         // RENDER STATE
+        render_texture   : ^sdl.GPUTexture,
         depth_texture    : ^sdl.GPUTexture,
 
         // STAGING
@@ -65,6 +67,7 @@ Model_Constants :: struct {
 
 graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) {
         g.device = device
+        g.window = window
 
         // Transfer read-only data to GPU
         cb := sdl.AcquireGPUCommandBuffer(device)
@@ -175,6 +178,19 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
         resolution_x, resolution_y : i32
         _ = sdl.GetWindowSizeInPixels(window, &resolution_x, &resolution_y)
+
+        rt_info := sdl.GPUTextureCreateInfo {
+                type                 = .D2,
+                format               = sdl.GetGPUSwapchainTextureFormat(g.device, g.window),
+                usage                = {.COLOR_TARGET, .SAMPLER},
+                width                = u32(resolution_x),
+                height               = u32(resolution_y),
+                layer_count_or_depth = 1,
+                num_levels           = 1,
+                sample_count         = ._1, // MSAA?
+        }
+        g.render_texture = sdl.CreateGPUTexture(device, rt_info)
+
 
         depth_info := sdl.GPUTextureCreateInfo {
                 type                 = .D2,
@@ -361,18 +377,35 @@ graphics_upload_texture :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, 
 
 
 graphics_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) {
-        _ = sdl.WaitForGPUIdle(device)
-        sdl.ReleaseGPUTexture(device, g.depth_texture)
 
-        resolution_x, resolution_y: i32
-        _ = sdl.GetWindowSizeInPixels(window, &resolution_x, &resolution_y)
+}
+
+
+// Called when the Scene window in the editor is resized
+graphics_scene_view_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, dimensions: [2]u32) {
+        _ = sdl.WaitForGPUIdle(device)
+        sdl.ReleaseGPUTexture(device, g.render_texture)
+        sdl.ReleaseGPUTexture(device, g.depth_texture)
+        
+        rt_info := sdl.GPUTextureCreateInfo {
+                type                 = .D2,
+                format               = sdl.GetGPUSwapchainTextureFormat(g.device, g.window),
+                usage                = {.COLOR_TARGET, .SAMPLER},
+                width                = dimensions.x,
+                height               = dimensions.y,
+                layer_count_or_depth = 1,
+                num_levels           = 1,
+                sample_count         = ._1, // MSAA?
+        }
+        g.render_texture = sdl.CreateGPUTexture(device, rt_info)
+
 
         depth_info := sdl.GPUTextureCreateInfo {
                 type                 = .D2,
                 format               = .D32_FLOAT,
                 usage                = {.DEPTH_STENCIL_TARGET},
-                width                = u32(resolution_x),
-                height               = u32(resolution_y),
+                width                = dimensions.x,
+                height               = dimensions.y,
                 layer_count_or_depth = 1,
                 num_levels           = 1,
                 sample_count         = ._1, // MSAA?
@@ -430,12 +463,12 @@ graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPU
                 clear_color          = {0.3, 0.3, 0.3, 1},
                 load_op              = .CLEAR,
                 store_op             = .STORE,
-                cycle                = false, // Maybe don't cycle the swapchain texture
+                cycle                = true,
         }
 
         dt_info := sdl.GPUDepthStencilTargetInfo {
                 texture          = g.depth_texture,
-                clear_depth      = 1,
+                clear_depth      = 0,
                 load_op          = .CLEAR,
                 store_op         = .STORE,
                 stencil_load_op  = .DONT_CARE,

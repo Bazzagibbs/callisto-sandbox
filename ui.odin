@@ -14,13 +14,20 @@ import im_sdl "callisto/imgui/imgui_impl_sdl3"
 import im_sdlgpu "callisto/imgui/imgui_impl_sdlgpu3"
 
 UI_Data :: struct {
-        inspector_open : bool,
-        hierarchy_open : bool,
+        device                : ^sdl.GPUDevice, // < Not owned by this struct
+        sampler               : ^sdl.GPUSampler,
+
+        scene_view_open       : bool,
+        scene_view_dimensions : [2]f32,
+        scene_view_texture    : ^sdl.GPUTexture, // < Not owned by this struct
+        scene_view_textureid  : sdl.GPUTextureSamplerBinding,
 }
 
 
 
-ui_init :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ctx: ^im.Context, ok: bool) {
+ui_init :: proc(u: ^UI_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ctx: ^im.Context, ok: bool) {
+        u.device = device
+        
         im.CHECKVERSION()
 
         ctx = im.CreateContext()
@@ -46,6 +53,23 @@ ui_init :: proc(device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ctx: ^im.Contex
         ok = im_sdlgpu.Init(&init_info)
 
 
+        sampler_info := sdl.GPUSamplerCreateInfo {
+                min_filter        = .LINEAR,
+                mag_filter        = .LINEAR,
+                mipmap_mode       = .LINEAR,
+                address_mode_u    = .CLAMP_TO_EDGE,
+                address_mode_v    = .CLAMP_TO_EDGE,
+                address_mode_w    = .CLAMP_TO_EDGE,
+                mip_lod_bias      = 0,
+                max_anisotropy    = 1,
+                min_lod           = 0,
+                max_lod           = max(f32),
+                enable_anisotropy = false,
+                enable_compare    = false,
+        }
+        u.sampler = sdl.CreateGPUSampler(device, sampler_info)
+
+
         return
 }
 
@@ -64,7 +88,7 @@ ui_load_font :: proc(data: []u8, font_size: f32, window: ^sdl.Window) -> ^im.Fon
 
 
 
-ui_begin :: proc(ctx: ^im.Context) {
+ui_begin :: proc(u: ^UI_Data, ctx: ^im.Context) {
         im.SetCurrentContext(ctx)
         im_sdlgpu.NewFrame()
         im_sdl.NewFrame()
@@ -74,7 +98,7 @@ ui_begin :: proc(ctx: ^im.Context) {
 
 
 // Add UI render pass to the provided command buffer. The command buffer must still be submitted.
-ui_end :: proc(cb: ^sdl.GPUCommandBuffer, render_target: ^sdl.GPUTexture) {
+ui_end :: proc(u: ^UI_Data, cb: ^sdl.GPUCommandBuffer, render_target: ^sdl.GPUTexture) {
         im.Render()
         ui_data := im.GetDrawData()
         im_sdlgpu.PrepareDrawData(ui_data, cb)
@@ -99,7 +123,8 @@ ui_end :: proc(cb: ^sdl.GPUCommandBuffer, render_target: ^sdl.GPUTexture) {
 
 
 
-ui_destroy :: proc(ctx: ^im.Context) {
+ui_destroy :: proc(u: ^UI_Data, ctx: ^im.Context) {
+        sdl.ReleaseGPUSampler(u.device, u.sampler)
         im_sdl.Shutdown()
         im_sdlgpu.Shutdown()
         // im.DestroyContext(ctx) // ?? crashes when uncommented
@@ -114,7 +139,7 @@ ui_process_event :: proc(event: ^sdl.Event) -> bool {
 
 
 ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
-        im.DockSpaceOverViewport(0, im.GetMainViewport(), {.PassthruCentralNode})
+        im.DockSpaceOverViewport(0, im.GetMainViewport(), {})
         if im.BeginMainMenuBar() {
                 if im.BeginMenu("File") {
                         // Add open/save etc.
@@ -123,20 +148,50 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
 
                 im.EndMainMenuBar()
         }
-        
+       
+
+        open: bool
+
         hierarchy_window_flags : im.WindowFlags
         if a.scene.editor_state.dirty {
                 hierarchy_window_flags += {.UnsavedDocument}
         }
-        if im.Begin("Scene Hierarchy", &u.hierarchy_open, hierarchy_window_flags) {
+        if im.Begin("Hierarchy", &open, hierarchy_window_flags) {
                 ui_draw_scene_hierarchy(&a.scene)
-                im.End()
         }
+        im.End()
 
-        if im.Begin("Inspector", &u.inspector_open) {
+
+        if im.Begin("Inspector", &open) {
                 ui_draw_inspector(&a.scene)
-                im.End()
         }
+        im.End()
+
+
+        im.SetNextWindowSizeConstraints({100, 100}, {max(f32), max(f32)})
+        im.PushStyleVarImVec2(.WindowPadding, {0, 0})
+        im.PushStyleVar(.WindowBorderSize, 0)
+        if im.Begin("Scene", &open, {}) {
+                u.scene_view_open = true
+                // Get dimensions of scene window to pass to scene next frame
+                min := im.GetWindowContentRegionMin()
+                max := im.GetWindowContentRegionMax()
+                u.scene_view_dimensions = max - min
+
+                // This pointer must still be valid in ui_end(), store it in app data
+                u.scene_view_textureid = sdl.GPUTextureSamplerBinding {
+                        texture = u.scene_view_texture,
+                        sampler = u.sampler,
+                }
+                im.Image(im.TextureID(uintptr(&u.scene_view_textureid)), u.scene_view_dimensions)
+
+        }  else {
+                u.scene_view_open = false
+        }
+        im.End()
+        im.PopStyleVar(2)
+
+        // im.ShowDemoWindow()
 
 
 }
@@ -205,6 +260,7 @@ ui_draw_inspector :: proc(s: ^cal.Scene) {
 
 ui_draw_inspector_transform :: proc(s: ^cal.Scene, t: cal.Transform) {
         if im.TreeNodeEx("Transform", {.DefaultOpen, .SpanFullWidth}) {
+
                 // POSITION 
                 {
                         temp_pos := cal.transform_get_local_position(s, t)
