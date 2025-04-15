@@ -10,6 +10,8 @@ import "core:bytes"
 import "core:math/linalg"
 
 
+import "callisto/editor/ufbx"
+
 check_sdl_ptr :: proc(ptr: rawptr, exp := #caller_expression(ptr), loc := #caller_location) -> bool {
         if ptr != nil {
                 return true
@@ -335,6 +337,8 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
         sdl.EndGPUCopyPass(copy_pass)
         _ = sdl.SubmitGPUCommandBuffer(cb)
+
+
 }
 
 graphics_upload_buffer :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_buffer: ^sdl.GPUBuffer) {

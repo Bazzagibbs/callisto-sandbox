@@ -6,12 +6,15 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:time"
+import "core:math/linalg"
 import cal "callisto"
 import "callisto/config"
 
 import sdl "vendor:sdl3"
 
 import im "callisto/imgui"
+
+import "callisto/editor/ufbx"
 
 
 App_Data :: struct {
@@ -50,6 +53,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         assert_sdl(ok)
 
         sdl.SetHint(sdl.HINT_GPU_DRIVER, "vulkan")
+        sdl.SetHint(sdl.HINT_MAIN_CALLBACK_RATE, "waitevent")
 
 
         // WINDOW
@@ -95,6 +99,43 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         door_data.editor_state.use_hierarchy_color = true
         door_data.editor_state.hierarchy_color = {0.6, 0.2, 0.2, 1}
 
+        
+        // Load UFBX hierarchy only
+        fbx_data := #load("res/meshes/PineTree_Autumn_3.fbx")
+        fbx_err : ufbx.Error
+        opts := ufbx.Load_Opts {
+                ignore_all_content = true,
+                target_unit_meters = 1,
+        }
+        fbx_scene := ufbx.load_memory(raw_data(fbx_data), len(fbx_data), nil, &fbx_err)
+        assert(fbx_err.type == .NONE)
+        defer ufbx.free_scene(fbx_scene)
+
+        add_ufbx_node_recursive(s, fbx_scene.root_node)
+
+        add_ufbx_node_recursive :: proc(s: ^cal.Scene, unode: ^ufbx.Node, parent := cal.TRANSFORM_NONE) {
+                transform := cal.transform_create(s, unode.element.name, parent)
+                
+                tl := unode.local_transform.translation
+                ro := unode.local_transform.rotation
+                sc := unode.local_transform.scale
+
+                quat : quaternion128
+                quat.x = f32(ro.x)
+                quat.y = f32(ro.y)
+                quat.z = f32(ro.z)
+                quat.w = f32(ro.w)
+
+                cal.transform_set_local_position(s, transform, {f32(tl.x), f32(tl.y), f32(tl.z)})
+                cal.transform_set_local_rotation(s, transform, quat)
+                cal.transform_set_local_scale(s, transform, {f32(sc.x), f32(sc.y), f32(sc.z)})
+
+                for child in unode.children {
+                        add_ufbx_node_recursive(s, child, transform)
+                }
+        }
+        
+
 
         return .CONTINUE
 }
@@ -128,7 +169,7 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
 callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
         a : ^App_Data = cast(^App_Data)app_data
 
-        if ui_process_event(event) {
+        if ui_process_event(&a.ui_data, event) {
                 return .CONTINUE
         }
 
@@ -194,5 +235,7 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
                 _ = sdl.SubmitGPUCommandBuffer(cb)
         }
         // END GPU
+
+
         return .CONTINUE
 }

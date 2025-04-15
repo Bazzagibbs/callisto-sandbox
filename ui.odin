@@ -13,6 +13,9 @@ import im "callisto/imgui"
 import im_sdl "callisto/imgui/imgui_impl_sdl3"
 import im_sdlgpu "callisto/imgui/imgui_impl_sdlgpu3"
 
+USER_EVENT_REDRAW :: 128
+
+
 UI_Data :: struct {
         device                : ^sdl.GPUDevice, // < Not owned by this struct
         sampler               : ^sdl.GPUSampler,
@@ -21,8 +24,8 @@ UI_Data :: struct {
         scene_view_dimensions : [2]f32,
         scene_view_texture    : ^sdl.GPUTexture, // < Not owned by this struct
         scene_view_textureid  : sdl.GPUTextureSamplerBinding,
+        event_counter         : int,
 }
-
 
 
 ui_init :: proc(u: ^UI_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ctx: ^im.Context, ok: bool) {
@@ -119,6 +122,18 @@ ui_end :: proc(u: ^UI_Data, cb: ^sdl.GPUCommandBuffer, render_target: ^sdl.GPUTe
         ui_pass := sdl.BeginGPURenderPass(cb, &target_info, 1, nil)
         im_sdlgpu.RenderDrawData(ui_data, cb, ui_pass)
         sdl.EndGPURenderPass(ui_pass)
+
+        if u.event_counter > 0 {
+                u.event_counter -= 1
+
+                event := sdl.Event {
+                        user = {
+                                type = .USER,
+                                code = USER_EVENT_REDRAW,
+                        }
+                }
+                _ = sdl.PushEvent(&event)
+        }
 }
 
 
@@ -132,7 +147,12 @@ ui_destroy :: proc(u: ^UI_Data, ctx: ^im.Context) {
 
 
 
-ui_process_event :: proc(event: ^sdl.Event) -> bool {
+ui_process_event :: proc(u: ^UI_Data, event: ^sdl.Event) -> bool {
+        // USER redraw events are used to make sure animations are finished before waiting on the queue.
+        if event.type != .USER || event.user.code != USER_EVENT_REDRAW {
+                u.event_counter = 3
+        }
+
         return im_sdl.ProcessEvent(event)
 }
 
@@ -168,7 +188,7 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
         im.End()
 
 
-        im.SetNextWindowSizeConstraints({100, 100}, {max(f32), max(f32)})
+        im.SetNextWindowSizeConstraints({200, 200}, {max(f32), max(f32)})
         im.PushStyleVarImVec2(.WindowPadding, {0, 0})
         im.PushStyleVar(.WindowBorderSize, 0)
         if im.Begin("Scene", &open, {}) {
@@ -191,7 +211,7 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
         im.End()
         im.PopStyleVar(2)
 
-        // im.ShowDemoWindow()
+        im.ShowDemoWindow()
 
 
 }
@@ -205,7 +225,7 @@ ui_draw_scene_hierarchy :: proc(s: ^cal.Scene) {
 
         draw_transform_node :: proc(s: ^cal.Scene, transform: cal.Transform) {
                 data := cal.transform_get_data(s, transform)
-                flags : im.TreeNodeFlags = { .OpenOnArrow, .SpanFullWidth, }
+                flags : im.TreeNodeFlags = { .OpenOnArrow, .SpanAvailWidth }
 
                 im.PushIDInt(i32(transform))
 
@@ -252,7 +272,8 @@ ui_draw_inspector :: proc(s: ^cal.Scene) {
         if s.editor_state.transform_selected_latest == cal.TRANSFORM_NONE {
                 return
         }
-
+        
+        im.TextUnformatted(strings.unsafe_string_to_cstring(cal.transform_get_name(s, s.editor_state.transform_selected_latest)))
         ui_draw_inspector_transform(s, s.editor_state.transform_selected_latest)
         // Add inspector panels here
 }
