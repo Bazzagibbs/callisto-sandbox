@@ -211,7 +211,7 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
         im.End()
         im.PopStyleVar(2)
 
-        im.ShowDemoWindow()
+        // im.ShowDemoWindow()
 
 
 }
@@ -225,7 +225,7 @@ ui_draw_scene_hierarchy :: proc(s: ^cal.Scene) {
 
         draw_transform_node :: proc(s: ^cal.Scene, transform: cal.Transform) {
                 data := cal.transform_get_data(s, transform)
-                flags : im.TreeNodeFlags = { .OpenOnArrow, .SpanAvailWidth }
+                flags : im.TreeNodeFlags = { .OpenOnArrow, .OpenOnDoubleClick, .NavLeftJumpsBackHere, .SpanFullWidth }
 
                 im.PushIDInt(i32(transform))
 
@@ -241,25 +241,25 @@ ui_draw_scene_hierarchy :: proc(s: ^cal.Scene) {
                         im.PushStyleColorImVec4(im.Col.Button, data.editor_state.hierarchy_color)
                 }
 
+                node_open := im.TreeNodeExStr("", flags, "%s", strings.unsafe_string_to_cstring(data.name))
 
-                if im.TreeNodeEx(strings.unsafe_string_to_cstring(data.name), flags) {
-                        if data.editor_state.use_hierarchy_color {
-                                im.PopStyleColor()
-                        }
+                if data.editor_state.use_hierarchy_color {
+                        im.PopStyleColor()
+                }
 
-                        if im.IsItemActivated() {
-                                s.editor_state.transform_selected_latest = transform
-                        }
+                // Only select hierarchy node if the toggle arrow wasn't pressed
+                if im.IsItemFocused() {
+                        s.editor_state.transform_selected_latest = transform
+                }
 
+
+                if node_open {
                         for child in data.children {
                                 draw_transform_node(s, child)
                         }
+
+
                         im.TreePop()
-                } 
-                else {
-                        if data.editor_state.use_hierarchy_color {
-                                im.PopStyleColor()
-                        }
                 }
 
                 im.PopID()
@@ -273,11 +273,28 @@ ui_draw_inspector :: proc(s: ^cal.Scene) {
                 return
         }
         
-        im.TextUnformatted(strings.unsafe_string_to_cstring(cal.transform_get_name(s, s.editor_state.transform_selected_latest)))
+        // im.TextUnformatted(strings.unsafe_string_to_cstring(cal.transform_get_name(s, s.editor_state.transform_selected_latest)))
+        ui_draw_inspector_name(s, s.editor_state.transform_selected_latest)
         ui_draw_inspector_transform(s, s.editor_state.transform_selected_latest)
         // Add inspector panels here
 }
 
+
+ui_draw_inspector_name :: proc(s: ^cal.Scene, t: cal.Transform) {
+        // TODO wrap this for string builder
+        buf : [128]u8
+        copy(buf[:], cal.transform_get_name(s, t))
+        buf[127] = 0
+
+        input_result := im.InputText("Name", cstring(&buf[0]), len(buf) - 1, {.EnterReturnsTrue}) 
+
+        if im.IsItemDeactivatedAfterEdit() {
+                if input_result {
+                        log.info("Set name:", cstring(&buf[0]))
+                        cal.transform_set_name(s, t, string(buf[:]))
+                }
+        }
+}
 
 ui_draw_inspector_transform :: proc(s: ^cal.Scene, t: cal.Transform) {
         if im.TreeNodeEx("Transform", {.DefaultOpen, .SpanFullWidth}) {

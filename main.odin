@@ -31,6 +31,7 @@ App_Data :: struct {
         ui_data       : UI_Data,
 
         scene         : cal.Scene,
+        camera        : cal.Camera,
 }
 
 

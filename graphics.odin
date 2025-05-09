@@ -10,6 +10,7 @@ import "core:bytes"
 import "core:math/linalg"
 
 
+import cal "callisto"
 import "callisto/editor/ufbx"
 
 check_sdl_ptr :: proc(ptr: rawptr, exp := #caller_expression(ptr), loc := #caller_location) -> bool {
@@ -57,13 +58,11 @@ Graphics_Data :: struct {
 Camera_Constants :: struct {
         view     : matrix[4,4]f32,
         proj     : matrix[4,4]f32,
-        viewproj : matrix[4,4]f32,
 }
 
 Model_Constants :: struct {
         model     : matrix[4,4]f32,
         modelview : matrix[4,4]f32,
-        mvp       : matrix[4,4]f32,
 }
 
 
@@ -217,8 +216,8 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                 format               = {.SPIRV},
                 stage                = .VERTEX,
                 num_samplers         = 0,
-                num_storage_buffers  = 2,
-                num_uniform_buffers  = 0,
+                num_storage_buffers  = 0,
+                num_uniform_buffers  = 2,
                 num_storage_textures = 0,
         }
         g.vertex_shader = sdl.CreateGPUShader(device, vertex_shader_info)
@@ -445,14 +444,14 @@ graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPU
         cam_constants := Camera_Constants {
                 view     = linalg.identity(matrix[4,4]f32),
                 proj     = linalg.identity(matrix[4,4]f32),
-                viewproj = linalg.identity(matrix[4,4]f32),
+                // viewproj = linalg.identity(matrix[4,4]f32),
         }
         graphics_upload_buffer(g.device, copy_pass, slice.bytes_from_ptr(&cam_constants, size_of(Camera_Constants)), g.constants_staging_buffer, g.constants_camera)
 
         model_constants := Model_Constants {
                 model     = linalg.identity(matrix[4,4]f32),
                 modelview = linalg.identity(matrix[4,4]f32),
-                mvp       = linalg.identity(matrix[4,4]f32),
+                // mvp       = linalg.identity(matrix[4,4]f32),
         }
         graphics_upload_buffer(g.device, copy_pass, slice.bytes_from_ptr(&model_constants, size_of(Model_Constants)), g.constants_staging_buffer, g.constants_model)
 
@@ -524,4 +523,18 @@ graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPU
 }
 
 
+graphics_pass_begin :: proc(cb: ^sdl.GPUCommandBuffer, camera: ^cal.Camera) {
+        // Push camera constants to slot 0
+        uniform_data := cal.camera_get_uniform_data(camera)
+        sdl.PushGPUVertexUniformData(cb, 0, &uniform_data, size_of(uniform_data))
+}
 
+// graphics_draw_meshes :: proc(cb: ^sdl.GPUCommandBuffer, mesh_renderers: []cal.Mesh_Render_Info) {
+        // Push material constants to slot 1
+        // Push mesh constants to slot 2
+        // sdl.PushGPUVertexUniformData(cb, 2, )
+        // mesh_data := linalg.matrix4_from_trs_f32()
+// }
+
+graphics_pass_end :: proc() {
+}
