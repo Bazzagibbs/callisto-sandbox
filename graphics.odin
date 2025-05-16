@@ -8,6 +8,8 @@ import "core:image"
 import "core:image/png"
 import "core:bytes"
 import "core:math/linalg"
+import "core:encoding/cbor"
+import "core:strings"
 
 
 import cal "callisto"
@@ -205,39 +207,44 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         }
         g.depth_texture = sdl.CreateGPUTexture(device, depth_info)
         check_sdl_ptr(g.depth_texture)
-        
+
 
         // Create shaders
-        vertex_shader_bin := #load("imported/shaders/vertex.spv") // load_resource(Resource("res://shaders/vertex.spv"))
-        vertex_shader_info := sdl.GPUShaderCreateInfo {
-                code_size            = uint(len(vertex_shader_bin)),
-                code                 = raw_data(vertex_shader_bin),
-                entrypoint           = "main",
-                format               = {.SPIRV},
-                stage                = .VERTEX,
-                num_samplers         = 0,
-                num_storage_buffers  = 0,
-                num_uniform_buffers  = 2,
-                num_storage_textures = 0,
-        }
-        g.vertex_shader = sdl.CreateGPUShader(device, vertex_shader_info)
+        // vertex_shader_bin := #load("imported/shaders/vertex.cal") // load_resource(Resource("res://shaders/vertex.spv"))
+        // vertex_shader_info := sdl.GPUShaderCreateInfo {
+        //         code_size            = uint(len(vertex_shader_bin)),
+        //         code                 = raw_data(vertex_shader_bin),
+        //         entrypoint           = "main",
+        //         format               = {.SPIRV},
+        //         stage                = .VERTEX,
+        //         num_samplers         = 0,
+        //         num_storage_buffers  = 0,
+        //         num_uniform_buffers  = 2,
+        //         num_storage_textures = 0,
+        // }
+        // g.vertex_shader = sdl.CreateGPUShader(device, vertex_shader_info)
+        // check_sdl_ptr(g.vertex_shader)
+
+        g.vertex_shader, _ = cal.asset_load_shader(g.device, "shaders/vertex.cal")
         check_sdl_ptr(g.vertex_shader)
 
-
-        fragment_shader_bin := #load("imported/shaders/fragment.spv") // load_resource(Resource("res://shaders/vertex.spv"))
-        fragment_shader_info := sdl.GPUShaderCreateInfo {
-                code_size            = uint(len(fragment_shader_bin)),
-                code                 = raw_data(fragment_shader_bin),
-                entrypoint           = "main",
-                format               = {.SPIRV},
-                stage                = .FRAGMENT,
-                num_samplers         = 1,
-                num_storage_buffers  = 0,
-                num_uniform_buffers  = 0,
-                num_storage_textures = 0,
-        }
-        g.fragment_shader = sdl.CreateGPUShader(device, fragment_shader_info)
+        g.fragment_shader, _ = cal.asset_load_shader(g.device, "shaders/fragment.cal")
         check_sdl_ptr(g.fragment_shader)
+
+        // fragment_shader_bin := #load("imported/shaders/fragment.cal") // load_resource(Resource("res://shaders/vertex.spv"))
+        // fragment_shader_info := sdl.GPUShaderCreateInfo {
+        //         code_size            = uint(len(fragment_shader_bin)),
+        //         code                 = raw_data(fragment_shader_bin),
+        //         entrypoint           = "main",
+        //         format               = {.SPIRV},
+        //         stage                = .FRAGMENT,
+        //         num_samplers         = 1,
+        //         num_storage_buffers  = 0,
+        //         num_uniform_buffers  = 0,
+        //         num_storage_textures = 0,
+        // }
+        // g.fragment_shader = sdl.CreateGPUShader(device, fragment_shader_info)
+        // check_sdl_ptr(g.fragment_shader)
 
         defer sdl.ReleaseGPUShader(device, g.vertex_shader)
         defer sdl.ReleaseGPUShader(device, g.fragment_shader)
@@ -336,8 +343,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
         sdl.EndGPUCopyPass(copy_pass)
         _ = sdl.SubmitGPUCommandBuffer(cb)
-
-
 }
 
 graphics_upload_buffer :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_buffer: ^sdl.GPUBuffer) {
