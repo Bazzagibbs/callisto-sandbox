@@ -6,6 +6,7 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:time"
+import "core:math"
 import "core:math/linalg"
 import cal "callisto"
 import "callisto/config"
@@ -26,6 +27,7 @@ App_Data :: struct {
         tick_begin    : time.Tick,
         tick_frame    : time.Tick,
         delta         : f32, // Seconds
+        time_accumulated: f32,
 
         graphics_data : Graphics_Data,
         ui_data       : UI_Data,
@@ -196,11 +198,19 @@ callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
 @(export)
 callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
         a : ^App_Data = cast(^App_Data)app_data
+        g := &a.graphics_data
+
         
         // TIME
         tick_now := time.tick_now()
         a.delta = f32(time.duration_seconds(time.tick_diff(a.tick_frame, tick_now)))
+        a.delta = min(0.016, a.delta)
         a.tick_frame = tick_now
+
+        a.time_accumulated += a.delta
+
+        g.cam_pos = {math.sin(a.time_accumulated) * 5, 0, -10}
+
 
         // BEGIN GPU
         cb := sdl.AcquireGPUCommandBuffer(a.device)

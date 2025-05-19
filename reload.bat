@@ -1,3 +1,3 @@
 @echo off
 
-editor reload
+build.bat -reload

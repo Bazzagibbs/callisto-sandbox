@@ -2,4 +2,11 @@ out/
 imported/
 editor.exe
 editor.pdb
+editor.rdi
 imgui.ini
+
+dxcompiler.dll
+dxil.dll
+SDL3.dll
+SDL3_shadercross.dll
+spirv-cross-c-shared.dll

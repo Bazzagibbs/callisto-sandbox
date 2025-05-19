@@ -29,10 +29,6 @@ Graphics_Data :: struct {
         device: ^sdl.GPUDevice, // NOTE: not owned by this struct
         window: ^sdl.Window,    // NOTE: not owned by this struct
 
-        // CONSTANT BUFFERS
-        constants_camera : ^sdl.GPUBuffer,
-        constants_model  : ^sdl.GPUBuffer,
-
         // MODEL
         vb_position      : ^sdl.GPUBuffer,
         vb_tex_coord_0   : ^sdl.GPUBuffer,
@@ -54,17 +50,22 @@ Graphics_Data :: struct {
 
         // STAGING
         constants_staging_buffer : ^sdl.GPUTransferBuffer,
+
+        // CAMERA TRANSFORM
+        cam_pos : [3]f32,
+        cam_rot : quaternion128,
+        cam_aspect : f32,
 }
 
 
 Camera_Constants :: struct {
         view     : matrix[4,4]f32,
         proj     : matrix[4,4]f32,
+        viewproj : matrix[4,4]f32,
 }
 
 Model_Constants :: struct {
         model     : matrix[4,4]f32,
-        modelview : matrix[4,4]f32,
 }
 
 
@@ -193,6 +194,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                 sample_count         = ._1, // MSAA?
         }
         g.render_texture = sdl.CreateGPUTexture(device, rt_info)
+        check_sdl_ptr(g.render_texture)
 
 
         depth_info := sdl.GPUTextureCreateInfo {
@@ -209,48 +211,18 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         check_sdl_ptr(g.depth_texture)
 
 
-        // Create shaders
-        // vertex_shader_bin := #load("imported/shaders/vertex.cal") // load_resource(Resource("res://shaders/vertex.spv"))
-        // vertex_shader_info := sdl.GPUShaderCreateInfo {
-        //         code_size            = uint(len(vertex_shader_bin)),
-        //         code                 = raw_data(vertex_shader_bin),
-        //         entrypoint           = "main",
-        //         format               = {.SPIRV},
-        //         stage                = .VERTEX,
-        //         num_samplers         = 0,
-        //         num_storage_buffers  = 0,
-        //         num_uniform_buffers  = 2,
-        //         num_storage_textures = 0,
-        // }
-        // g.vertex_shader = sdl.CreateGPUShader(device, vertex_shader_info)
-        // check_sdl_ptr(g.vertex_shader)
-
-        g.vertex_shader, _ = cal.asset_load_shader(g.device, "shaders/vertex.cal")
+        // Shaders
+        g.vertex_shader, _ = cal.asset_load_shader(g.device, "shaders/shader.vert.cal")
         check_sdl_ptr(g.vertex_shader)
-
-        g.fragment_shader, _ = cal.asset_load_shader(g.device, "shaders/fragment.cal")
-        check_sdl_ptr(g.fragment_shader)
-
-        // fragment_shader_bin := #load("imported/shaders/fragment.cal") // load_resource(Resource("res://shaders/vertex.spv"))
-        // fragment_shader_info := sdl.GPUShaderCreateInfo {
-        //         code_size            = uint(len(fragment_shader_bin)),
-        //         code                 = raw_data(fragment_shader_bin),
-        //         entrypoint           = "main",
-        //         format               = {.SPIRV},
-        //         stage                = .FRAGMENT,
-        //         num_samplers         = 1,
-        //         num_storage_buffers  = 0,
-        //         num_uniform_buffers  = 0,
-        //         num_storage_textures = 0,
-        // }
-        // g.fragment_shader = sdl.CreateGPUShader(device, fragment_shader_info)
-        // check_sdl_ptr(g.fragment_shader)
-
         defer sdl.ReleaseGPUShader(device, g.vertex_shader)
+
+        g.fragment_shader, _ = cal.asset_load_shader(g.device, "shaders/shader.frag.cal")
+        check_sdl_ptr(g.fragment_shader)
         defer sdl.ReleaseGPUShader(device, g.fragment_shader)
 
 
         // Create pipeline
+        // Vertex: two separate vertex buffers, one each for position and uv
         pipeline_vertex_buffer_descs := []sdl.GPUVertexBufferDescription {
                 {slot = 0, pitch = size_of([3]f32), input_rate = .VERTEX }, // position
                 {slot = 1, pitch = size_of([2]f32), input_rate = .VERTEX }, // tex_coord_0
@@ -260,7 +232,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                 {location = 0, buffer_slot = 0, format = .FLOAT3, offset = 0}, // position
                 {location = 1, buffer_slot = 1, format = .FLOAT2, offset = 0}, // tex_coord_0
         }
-
 
         pipeline_blend_state := sdl.GPUColorTargetBlendState {
                 enable_blend = false,
@@ -297,8 +268,8 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                         sample_count = ._1,
                 },
                 depth_stencil_state = {
-                        compare_op         = .LESS,
-                        enable_depth_test  = false,
+                        compare_op         = .GREATER_OR_EQUAL,
+                        enable_depth_test  = true,
                         enable_depth_write = true,
                 },
 
@@ -315,28 +286,27 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
 
         // Constant buffers
-        constants_camera_info := sdl.GPUBufferCreateInfo {
-                usage = {.GRAPHICS_STORAGE_READ},
-                size  = u32(size_of(Camera_Constants)),
-        }
-        g.constants_camera = sdl.CreateGPUBuffer(device, constants_camera_info)
-        check_sdl_ptr(g.constants_camera)
+        // constants_camera_info := sdl.GPUBufferCreateInfo {
+        //         usage = {.GRAPHICS_STORAGE_READ},
+        //         size  = u32(size_of(Camera_Constants)),
+        // }
+        // g.constants_camera = sdl.CreateGPUBuffer(device, constants_camera_info)
+        // check_sdl_ptr(g.constants_camera)
+        //
+        //
+        // constants_model_info := sdl.GPUBufferCreateInfo {
+        //         usage = {.GRAPHICS_STORAGE_READ},
+        //         size  = u32(size_of(Model_Constants)),
+        // }
+        // g.constants_model = sdl.CreateGPUBuffer(device, constants_model_info)
+        // check_sdl_ptr(g.constants_model)
 
 
-        constants_model_info := sdl.GPUBufferCreateInfo {
-                usage = {.GRAPHICS_STORAGE_READ},
-                size  = u32(size_of(Model_Constants)),
-        }
-        g.constants_model = sdl.CreateGPUBuffer(device, constants_model_info)
-        check_sdl_ptr(g.constants_model)
-
-
-        assert(size_of(Camera_Constants) == size_of(Model_Constants))
-        constants_staging_buffer_info := sdl.GPUTransferBufferCreateInfo {
-                usage = .UPLOAD,
-                size  = u32(size_of(Camera_Constants)), // Model constants are the same size, but be careful!
-        }
-        g.constants_staging_buffer = sdl.CreateGPUTransferBuffer(device, constants_staging_buffer_info)
+        // constants_staging_buffer_info := sdl.GPUTransferBufferCreateInfo {
+        //         usage = .UPLOAD,
+        //         size  = u32(size_of(Camera_Constants)), // Model constants are the same size, but be careful!
+        // }
+        // g.constants_staging_buffer = sdl.CreateGPUTransferBuffer(device, constants_staging_buffer_info)
 
         // Load vertex/index data from model
         // Load texture
@@ -419,6 +389,8 @@ graphics_scene_view_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, di
                 sample_count         = ._1, // MSAA?
         }
         g.depth_texture = sdl.CreateGPUTexture(device, depth_info)
+
+        g.cam_aspect = f32(dimensions.x) / f32(dimensions.y)
 }
 
 
@@ -431,8 +403,6 @@ graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
         sdl.ReleaseGPUTexture(device, g.depth_texture)
 
         sdl.ReleaseGPUTransferBuffer(device, g.constants_staging_buffer)
-        sdl.ReleaseGPUBuffer(device, g.constants_camera)
-        sdl.ReleaseGPUBuffer(device, g.constants_model)
         sdl.ReleaseGPUBuffer(device, g.vb_position)
         sdl.ReleaseGPUBuffer(device, g.vb_tex_coord_0)
         sdl.ReleaseGPUBuffer(device, g.index_buffer)
@@ -443,24 +413,31 @@ graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
 
 
 graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPUTexture) {
-        // Update transform hierarchy (Model constant buffers)
-        copy_pass := sdl.BeginGPUCopyPass(cb)
+        // g.cam_pos = {0, 0, -3}
+
+        cam_transform := linalg.matrix4_translate_f32(g.cam_pos) * linalg.matrix4_from_quaternion_f32(g.cam_rot)
+        // cam_transform := linalg.matrix4_from_quaternion_f32(g.cam_rot) * linalg.matrix4_translate_f32(g.cam_pos)
+
+        view := linalg.matrix4_inverse_transpose_f32(cam_transform)
+        // view := linalg.MATRIX4F32_IDENTITY
+
+        
+        proj := cal.projection_perspective(60, g.cam_aspect, 0.01, 10_000)
+        // proj := linalg.MATRIX4F32_IDENTITY
 
         cam_constants := Camera_Constants {
-                view     = linalg.identity(matrix[4,4]f32),
-                proj     = linalg.identity(matrix[4,4]f32),
-                // viewproj = linalg.identity(matrix[4,4]f32),
+                view     = view,
+                proj     = proj,
+                viewproj = view * proj,
         }
-        graphics_upload_buffer(g.device, copy_pass, slice.bytes_from_ptr(&cam_constants, size_of(Camera_Constants)), g.constants_staging_buffer, g.constants_camera)
 
         model_constants := Model_Constants {
-                model     = linalg.identity(matrix[4,4]f32),
-                modelview = linalg.identity(matrix[4,4]f32),
-                // mvp       = linalg.identity(matrix[4,4]f32),
+                model     = linalg.matrix4_translate_f32({-0.6, 0, 0}),
         }
-        graphics_upload_buffer(g.device, copy_pass, slice.bytes_from_ptr(&model_constants, size_of(Model_Constants)), g.constants_staging_buffer, g.constants_model)
 
-        sdl.EndGPUCopyPass(copy_pass)
+        model_constants_2 := Model_Constants {
+                model     = linalg.matrix4_translate_f32({0, 0, 100}),
+        }
 
 
         // Draw pass
@@ -512,15 +489,20 @@ graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPU
 
 
         // Push camera uniforms
-        // sdl.PushGPUVertexUniformData
-        // Push model uniforms
-       
-        storage_buffers := []^sdl.GPUBuffer {
-                g.constants_camera,
-                g.constants_model,
-        }
-        sdl.BindGPUVertexStorageBuffers(pass, 0, raw_data(storage_buffers), u32(len(storage_buffers)))
+        sdl.PushGPUVertexUniformData(cb, 0, &cam_constants, size_of(cam_constants))
 
+        // Push model uniforms
+        sdl.PushGPUVertexUniformData(cb, 1, &model_constants, size_of(model_constants))
+
+        // storage_buffers := []^sdl.GPUBuffer {
+        //         g.constants_camera,
+        //         g.constants_model,
+        // }
+        // sdl.BindGPUVertexStorageBuffers(pass, 0, raw_data(storage_buffers), u32(len(storage_buffers)))
+
+        sdl.DrawGPUIndexedPrimitives(pass, g.index_buffer_len, 1, 0, 0, 0)
+
+        sdl.PushGPUVertexUniformData(cb, 1, &model_constants_2, size_of(model_constants_2))
         sdl.DrawGPUIndexedPrimitives(pass, g.index_buffer_len, 1, 0, 0, 0)
 
         sdl.EndGPURenderPass(pass)
