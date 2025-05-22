@@ -11,6 +11,7 @@ import "core:math/linalg"
 import "core:encoding/cbor"
 import "core:strings"
 import sa "core:container/small_array"
+import "core:math"
 
 
 import cal "callisto"
@@ -70,7 +71,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
         g.camera = cal.Camera{
                 aspect_ratio = 16/9,
-                fov_y        = 60,
+                fov_y        = 60 * math.RAD_PER_DEG,
                 near_plane   = 0.01,
                 far_plane    = 10_000,
         }
@@ -104,7 +105,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
 
 
-        cal.resource_upload_end_wait(&r)
 
 
         sampler_info := sdl.GPUSamplerCreateInfo {
@@ -256,48 +256,12 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.pipeline = sdl.CreateGPUGraphicsPipeline(device, pipeline_info)
         check_sdl_ptr(g.pipeline)
 
+        cal.resource_upload_end_wait(&r)
 
         g.mesh_cb, _ = cal.mesh_render_command_buffer_create()
-        // Constant buffers
-        // constants_camera_info := sdl.GPUBufferCreateInfo {
-        //         usage = {.GRAPHICS_STORAGE_READ},
-        //         size  = u32(size_of(Camera_Constants)),
-        // }
-        // g.constants_camera = sdl.CreateGPUBuffer(device, constants_camera_info)
-        // check_sdl_ptr(g.constants_camera)
-        //
-        //
-        // constants_model_info := sdl.GPUBufferCreateInfo {
-        //         usage = {.GRAPHICS_STORAGE_READ},
-        //         size  = u32(size_of(Model_Constants)),
-        // }
-        // g.constants_model = sdl.CreateGPUBuffer(device, constants_model_info)
-        // check_sdl_ptr(g.constants_model)
-
-
-        // constants_staging_buffer_info := sdl.GPUTransferBufferCreateInfo {
-        //         usage = .UPLOAD,
-        //         size  = u32(size_of(Camera_Constants)), // Model constants are the same size, but be careful!
-        // }
-        // g.constants_staging_buffer = sdl.CreateGPUTransferBuffer(device, constants_staging_buffer_info)
-
-        // Load vertex/index data from model
-        // Load texture
-
-}
-
-graphics_upload_buffer :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_buffer: ^sdl.GPUBuffer) {
-
-        mapped := sdl.MapGPUTransferBuffer(device, staging_buffer, cycle = true)
-        mem.copy(mapped, raw_data(data), slice.size(data))
-        sdl.UnmapGPUTransferBuffer(device, staging_buffer)
-        
-        sdl.UploadToGPUBuffer(pass, {staging_buffer, 0},  {dest_buffer, 0, u32(slice.size(data))}, cycle = false)
-
 }
 
 graphics_upload_texture :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_texture: ^sdl.GPUTexture, width, height: u32) {
-
         mapped := sdl.MapGPUTransferBuffer(device, staging_buffer, false)
         mem.copy(mapped, raw_data(data), slice.size(data))
         sdl.UnmapGPUTransferBuffer(device, staging_buffer)
@@ -374,6 +338,7 @@ graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
 
         sdl.ReleaseGPUSampler(device, g.sampler)
         sdl.ReleaseGPUTexture(device, g.texture)
+        sdl.ReleaseGPUTexture(device, g.render_texture)
         sdl.ReleaseGPUTexture(device, g.depth_texture)
 
         sdl.ReleaseGPUTransferBuffer(device, g.constants_staging_buffer)
