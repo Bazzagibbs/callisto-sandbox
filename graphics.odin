@@ -10,6 +10,7 @@ import "core:bytes"
 import "core:math/linalg"
 import "core:encoding/cbor"
 import "core:strings"
+import sa "core:container/small_array"
 
 
 import cal "callisto"
@@ -30,31 +31,25 @@ Graphics_Data :: struct {
         window: ^sdl.Window,    // NOTE: not owned by this struct
 
         // MODEL
-        vb_position      : ^sdl.GPUBuffer,
-        vb_tex_coord_0   : ^sdl.GPUBuffer,
-        index_buffer     : ^sdl.GPUBuffer,
-        index_buffer_len : u32,
+        quad_mesh : cal.Mesh,
       
         // MATERIAL
-        vertex_shader   : ^sdl.GPUShader,
-        fragment_shader : ^sdl.GPUShader,
-        pipeline        : ^sdl.GPUGraphicsPipeline,
+        pipeline       : ^sdl.GPUGraphicsPipeline,
 
         // TEXTURE
-        texture          : ^sdl.GPUTexture,
-        sampler          : ^sdl.GPUSampler,
+        texture        : ^sdl.GPUTexture,
+        sampler        : ^sdl.GPUSampler,
 
         // RENDER STATE
-        render_texture   : ^sdl.GPUTexture,
-        depth_texture    : ^sdl.GPUTexture,
+        render_texture : ^sdl.GPUTexture,
+        depth_texture  : ^sdl.GPUTexture,
+        mesh_cb        : cal.Mesh_Render_Command_Buffer,
 
         // STAGING
         constants_staging_buffer : ^sdl.GPUTransferBuffer,
 
         // CAMERA TRANSFORM
-        cam_pos : [3]f32,
-        cam_rot : quaternion128,
-        cam_aspect : f32,
+        camera : cal.Camera,
 }
 
 
@@ -73,65 +68,44 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.device = device
         g.window = window
 
+        g.camera = cal.Camera{
+                aspect_ratio = 16/9,
+                fov_y        = 60,
+                near_plane   = 0.01,
+                far_plane    = 10_000,
+        }
+
         // Transfer read-only data to GPU
-        cb := sdl.AcquireGPUCommandBuffer(device)
+        r, _ := cal.resource_uploader_create(device)
+        defer cal.resource_uploader_destroy(&r)
 
-        copy_pass := sdl.BeginGPUCopyPass(cb)
-        
-
-        // Meshes
-        pos_data := [][3]f32 {
-                // {-0.5, 0, 0.5},
-                // {-0.5, 0, -0.5,},
-                // {0.5, 0, -0.5},
-                // {0.5, 0, 0.5},
-                {-0.5, 0.5, 0},
-                {-0.5, -0.5, 0},
-                {0.5, -0.5, 0},
-                {0.5, 0.5, 0},
-        }
-        pos_info := sdl.GPUBufferCreateInfo {
-                usage = {.VERTEX},
-                size  = u32(slice.size(pos_data)),
-        }
-        g.vb_position = sdl.CreateGPUBuffer(device, pos_info)
-
-        staging_buffer_info := sdl.GPUTransferBufferCreateInfo {
-                usage = .UPLOAD,
-                size = u32(slice.size(pos_data)), // TODO: Figure out what to do here - should I precalculate the largest buffer? or maintain my own staging buffer list
-        }
-        vertex_staging_buffer := sdl.CreateGPUTransferBuffer(device, staging_buffer_info)
-        defer sdl.ReleaseGPUTransferBuffer(device, vertex_staging_buffer)
-
-        graphics_upload_buffer(device, copy_pass, pos_data, vertex_staging_buffer, g.vb_position)
-
+        cal.resource_upload_begin(&r)
        
-        uv_data := [][2]f32 {
-                {0, 0},
-                {0, 1},
-                {1, 1},
-                {1, 0},
-        }
-        uv_info := sdl.GPUBufferCreateInfo {
-                usage = {.VERTEX},
-                size  = u32(slice.size(uv_data)),
-        }
-        g.vb_tex_coord_0 = sdl.CreateGPUBuffer(device, uv_info)
-        graphics_upload_buffer(device, copy_pass, uv_data, vertex_staging_buffer, g.vb_tex_coord_0)
-        
 
-        index_data := []u16 {
-                0, 2, 1,
-                0, 3, 2,
-        }
-        index_info := sdl.GPUBufferCreateInfo {
-                usage = {.INDEX},
-                size  = u32(slice.size(index_data)),
-        }
-        g.index_buffer = sdl.CreateGPUBuffer(device, index_info)
-        graphics_upload_buffer(device, copy_pass, index_data, vertex_staging_buffer, g.index_buffer)
-        g.index_buffer_len = u32(len(index_data))
-        
+        mesh_info := cal.Asset_Mesh { submesh_infos = []cal.Submesh_Info{ cal.Submesh_Info{
+                index_data = {
+                        0, 1, 3,
+                        3, 1, 2,
+                },
+                position_data = {
+                        {-0.5, 0.5, 0},
+                        {-0.5, -0.5, 0},
+                        {0.5, -0.5, 0},
+                        {0.5, 0.5, 0},
+                },
+                tex_coord_0_data = {
+                        {0, 0},
+                        {0, 1},
+                        {1, 1},
+                        {1, 0},
+                },
+        }}}
+
+        g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
+
+
+        cal.resource_upload_end_wait(&r)
+
 
         sampler_info := sdl.GPUSamplerCreateInfo {
                 min_filter        = .LINEAR,
@@ -177,7 +151,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         }
         texture_staging_buffer := sdl.CreateGPUTransferBuffer(device, texture_staging_buffer_info)
         defer sdl.ReleaseGPUTransferBuffer(device, texture_staging_buffer)
-        graphics_upload_texture(device, copy_pass, texture_pixels, texture_staging_buffer, g.texture, u32(texture_image.width), u32(texture_image.height))
+        graphics_upload_texture(device, r.copy_pass, texture_pixels, texture_staging_buffer, g.texture, u32(texture_image.width), u32(texture_image.height))
 
 
         resolution_x, resolution_y : i32
@@ -212,13 +186,11 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
 
         // Shaders
-        g.vertex_shader, _ = cal.asset_load_shader(g.device, "shaders/shader.vert.cal")
-        check_sdl_ptr(g.vertex_shader)
-        defer sdl.ReleaseGPUShader(device, g.vertex_shader)
+        vertex_shader, _ := cal.asset_load_shader(g.device, "shaders/shader.vert.cal")
+        defer cal.shader_destroy(device, &vertex_shader)
 
-        g.fragment_shader, _ = cal.asset_load_shader(g.device, "shaders/shader.frag.cal")
-        check_sdl_ptr(g.fragment_shader)
-        defer sdl.ReleaseGPUShader(device, g.fragment_shader)
+        fragment_shader, _ := cal.asset_load_shader(g.device, "shaders/shader.frag.cal")
+        defer cal.shader_destroy(device, &fragment_shader)
 
 
         // Create pipeline
@@ -249,8 +221,8 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         }
 
         pipeline_info := sdl.GPUGraphicsPipelineCreateInfo {
-                vertex_shader   = g.vertex_shader,
-                fragment_shader = g.fragment_shader,
+                vertex_shader   = vertex_shader.gpu_shader,
+                fragment_shader = fragment_shader.gpu_shader,
                 vertex_input_state =  {
                         vertex_buffer_descriptions = raw_data(pipeline_vertex_buffer_descs),
                         num_vertex_buffers         = u32(len(pipeline_vertex_buffer_descs)),
@@ -285,6 +257,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         check_sdl_ptr(g.pipeline)
 
 
+        g.mesh_cb, _ = cal.mesh_render_command_buffer_create()
         // Constant buffers
         // constants_camera_info := sdl.GPUBufferCreateInfo {
         //         usage = {.GRAPHICS_STORAGE_READ},
@@ -311,8 +284,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         // Load vertex/index data from model
         // Load texture
 
-        sdl.EndGPUCopyPass(copy_pass)
-        _ = sdl.SubmitGPUCommandBuffer(cb)
 }
 
 graphics_upload_buffer :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_buffer: ^sdl.GPUBuffer) {
@@ -390,12 +361,15 @@ graphics_scene_view_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, di
         }
         g.depth_texture = sdl.CreateGPUTexture(device, depth_info)
 
-        g.cam_aspect = f32(dimensions.x) / f32(dimensions.y)
+        g.camera.aspect_ratio = f32(dimensions.x) / f32(dimensions.y)
 }
 
 
 
 graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
+        cal.mesh_render_command_buffer_destroy(&g.mesh_cb)
+        cal.mesh_destroy(device, &g.quad_mesh)
+
         sdl.ReleaseGPUGraphicsPipeline(device, g.pipeline)
 
         sdl.ReleaseGPUSampler(device, g.sampler)
@@ -403,9 +377,6 @@ graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
         sdl.ReleaseGPUTexture(device, g.depth_texture)
 
         sdl.ReleaseGPUTransferBuffer(device, g.constants_staging_buffer)
-        sdl.ReleaseGPUBuffer(device, g.vb_position)
-        sdl.ReleaseGPUBuffer(device, g.vb_tex_coord_0)
-        sdl.ReleaseGPUBuffer(device, g.index_buffer)
         _ = sdl.WaitForGPUIdle(device)
 
 }
@@ -413,34 +384,8 @@ graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
 
 
 graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPUTexture) {
-        // g.cam_pos = {0, 0, -3}
+        mb := &g.mesh_cb
 
-        cam_transform := linalg.matrix4_translate_f32(g.cam_pos) * linalg.matrix4_from_quaternion_f32(g.cam_rot)
-        // cam_transform := linalg.matrix4_from_quaternion_f32(g.cam_rot) * linalg.matrix4_translate_f32(g.cam_pos)
-
-        view := linalg.matrix4_inverse_transpose_f32(cam_transform)
-        // view := linalg.MATRIX4F32_IDENTITY
-
-        
-        proj := cal.projection_perspective(60, g.cam_aspect, 0.01, 10_000)
-        // proj := linalg.MATRIX4F32_IDENTITY
-
-        cam_constants := Camera_Constants {
-                view     = view,
-                proj     = proj,
-                viewproj = view * proj,
-        }
-
-        model_constants := Model_Constants {
-                model     = linalg.matrix4_translate_f32({-0.6, 0, 0}),
-        }
-
-        model_constants_2 := Model_Constants {
-                model     = linalg.matrix4_translate_f32({0, 0, 100}),
-        }
-
-
-        // Draw pass
         rt_info := sdl.GPUColorTargetInfo {
                 texture              = rt,
                 mip_level            = 0,
@@ -462,58 +407,44 @@ graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPU
                 clear_stencil    = 0,
         }
 
-        pass := sdl.BeginGPURenderPass(
-                command_buffer            = cb,
-                color_target_infos        = &rt_info,
-                num_color_targets         = 1,
-                depth_stencil_target_info = &dt_info
-        )
+        opaque_pass_info := cal.Mesh_Render_Pass_Info {
+                options              = {},
+                gpu_command_buffer   = cb,
+                camera               = &g.camera,
+                color_targets        = {rt_info},
+                depth_stencil_target = dt_info,
+                sampler_anisotropic  = g.sampler,
+                sampler_trilinear    = g.sampler,
 
-        sdl.BindGPUGraphicsPipeline(pass, g.pipeline)
-
-
-        vert_buffer_bindings := []sdl.GPUBufferBinding {
-                {g.vb_position, 0},
-                {g.vb_tex_coord_0, 0},
         }
-        sdl.BindGPUVertexBuffers(pass, 0, raw_data(vert_buffer_bindings), u32(len(vert_buffer_bindings)))
+        cal.mesh_render_begin(mb, &opaque_pass_info)
 
 
-        texture_sampler_bindings := []sdl.GPUTextureSamplerBinding {
-                {g.texture, g.sampler},
+        // Temp entity definitions - should be stored in active scene/resource db
+        mesh_material := cal.Material {
+                vertex_input      = {.Position, .Tex_Coord_0},
+                pipeline          = g.pipeline,
+                textures_fragment = {cal.Texture{gpu_texture=g.texture, type=.Color}, 1}, // small_array literal
         }
-        sdl.BindGPUFragmentSamplers(pass, 0, raw_data(texture_sampler_bindings), u32(len(texture_sampler_bindings)))
 
-        index_buffer_binding := sdl.GPUBufferBinding {g.index_buffer, 0}        
-        sdl.BindGPUIndexBuffer(pass, index_buffer_binding, ._16BIT)
+        mesh_instance := cal.Mesh_Renderer {
+                mesh      = g.quad_mesh,
+                materials = {&mesh_material, 1}, // small_array literal
+        }
 
 
-        // Push camera uniforms
-        sdl.PushGPUVertexUniformData(cb, 0, &cam_constants, size_of(cam_constants))
+        // Draw meshes
+        cal.mesh_render_trs(mb, &mesh_instance, {-0.6, 0, 0})
+        cal.mesh_render_trs(mb, &mesh_instance, {0, 0, 100})
 
-        // Push model uniforms
-        sdl.PushGPUVertexUniformData(cb, 1, &model_constants, size_of(model_constants))
-
-        // storage_buffers := []^sdl.GPUBuffer {
-        //         g.constants_camera,
-        //         g.constants_model,
-        // }
-        // sdl.BindGPUVertexStorageBuffers(pass, 0, raw_data(storage_buffers), u32(len(storage_buffers)))
-
-        sdl.DrawGPUIndexedPrimitives(pass, g.index_buffer_len, 1, 0, 0, 0)
-
-        sdl.PushGPUVertexUniformData(cb, 1, &model_constants_2, size_of(model_constants_2))
-        sdl.DrawGPUIndexedPrimitives(pass, g.index_buffer_len, 1, 0, 0, 0)
-
-        sdl.EndGPURenderPass(pass)
-
+        cal.mesh_render_end(mb)
 }
 
 
 graphics_pass_begin :: proc(cb: ^sdl.GPUCommandBuffer, camera: ^cal.Camera) {
         // Push camera constants to slot 0
-        uniform_data := cal.camera_get_uniform_data(camera)
-        sdl.PushGPUVertexUniformData(cb, 0, &uniform_data, size_of(uniform_data))
+        // uniform_data := cal.camera_get_uniform_data(camera)
+        // sdl.PushGPUVertexUniformData(cb, 0, &uniform_data, size_of(uniform_data))
 }
 
 // graphics_draw_meshes :: proc(cb: ^sdl.GPUCommandBuffer, mesh_renderers: []cal.Mesh_Render_Info) {

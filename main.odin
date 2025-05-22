@@ -33,7 +33,6 @@ App_Data :: struct {
         ui_data       : UI_Data,
 
         scene         : cal.Scene,
-        camera        : cal.Camera,
 }
 
 
@@ -209,7 +208,7 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
         a.time_accumulated += a.delta
 
-        g.cam_pos = {math.sin(a.time_accumulated) * 5, 0, -10}
+        g.camera.position = {math.sin(a.time_accumulated) * 5, 0, -10}
 
 
         // BEGIN GPU

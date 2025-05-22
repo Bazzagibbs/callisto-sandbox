@@ -8,32 +8,20 @@ import "core:math/linalg"
 import sdl "vendor:sdl3"
 import cal "callisto"
 
-// Mesh_Renderer :: struct {
-//         transform : cal.Transform,
-//         mesh      : Mesh_Data,
-//         material  : Material_Data,
-// }
-//
-//
-// // Contains submeshes. Each submesh is drawn with a different material slot.
-// Mesh_Data :: struct {
-//         material_slot_name : [dynamic]string,
-//         gpu_position       : [dynamic]^sdl.GPUBuffer,
-//         gpu_normal         : [dynamic]^sdl.GPUBuffer,
-//         gpu_tangent        : [dynamic]^sdl.GPUBuffer,
-//         gpu_tex_coord_0    : [dynamic]^sdl.GPUBuffer,
-//         // color, skinning data, etc.
-// }
-//
-//
-// Material_Data :: struct {
-//         pipeline : ^sdl.GPUGraphicsPipeline,
-//         // attachments, uniforms
-// }
+import "callisto/config"
+
+Entity_Flags :: bit_set[Entity_Flag]
+Entity_Flag :: enum {
+        Enabled,
+        Has_Mesh_Renderer,
+}
 
 
-// Construct :: struct {
-//         root_transform : cal.Transform,
-//         // mesh_renderers : [dynamic]Mesh_Renderer,
-// }
+Entity :: struct {
+        flags         : Entity_Flags,
+        position      : [3]f32,
+        rotation      : quaternion128,
+        scale         : [3]f32,
+        mesh_renderer : cal.Mesh_Renderer,
+}
 

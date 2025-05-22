@@ -8,6 +8,7 @@ SamplerState sampler0 : register(s0, space2);
 
 
 float4 main(V2F v2f) : SV_Target0 {
-        float4 color = texture.Sample(sampler0, v2f.uv_0);
+        // float4 color = texture.Sample(sampler0, v2f.uv_0);
+        float4 color = float4(v2f.uv_0.xy, 0.0, 1.0);
         return color;
 }
