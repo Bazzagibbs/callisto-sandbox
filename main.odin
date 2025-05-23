@@ -9,6 +9,7 @@ import "core:time"
 import "core:math"
 import "core:math/linalg"
 import cal "callisto"
+import circle "callisto/circular_buffer"
 import "callisto/config"
 
 import sdl "vendor:sdl3"
@@ -33,6 +34,22 @@ App_Data :: struct {
         ui_data       : UI_Data,
 
         scene         : cal.Scene,
+
+        camera_yaw_pitch             : [2]f32,
+        has_camera_control           : bool,
+        mouse_delta                  : [2]f32,
+        mouse_pos_pre_camera_control : [2]f32,
+        directional_input            : bit_set[Direction],
+        camera_boost : bool,
+}
+
+Direction :: enum {
+        Forward,
+        Backward,
+        Left,
+        Right,
+        Up,
+        Down,
 }
 
 
@@ -138,6 +155,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         }
         
 
+        g.camera.position = {0, 0, -5}
 
         return .CONTINUE
 }
@@ -170,10 +188,11 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
 @(export)
 callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
         a : ^App_Data = cast(^App_Data)app_data
-
+        
         if ui_process_event(&a.ui_data, event) {
                 return .CONTINUE
         }
+        // ui_process_event(&a.ui_data, event)
 
 
         #partial switch event.type {
@@ -186,7 +205,75 @@ callisto_event :: proc(app_data: rawptr, event: ^sdl.Event) -> sdl.AppResult {
         case .QUIT:
                 sdl.Quit()
                 return .SUCCESS
+
+        case .MOUSE_BUTTON_DOWN:
+                // Capture for editor window
+                e := &event.button
+                if a.ui_data.scene_view_hovered && e.button == sdl.BUTTON_RIGHT {
+                        a.has_camera_control = true
+                        a.ui_data.force_no_consume_event = true
+                        // _ = sdl.SetWindowMouseGrab(a.window, true)
+                        _ = sdl.SetWindowRelativeMouseMode(a.window, true)
+                        _ = sdl.GetMouseState(&a.mouse_pos_pre_camera_control.x, &a.mouse_pos_pre_camera_control.y)
+                }
+
+        case .MOUSE_BUTTON_UP:
+                e := &event.button
+                if a.has_camera_control && e.button == sdl.BUTTON_RIGHT {
+                        a.has_camera_control = false
+                        a.ui_data.force_no_consume_event = false
+                        sdl.WarpMouseInWindow(a.window, a.mouse_pos_pre_camera_control.x, a.mouse_pos_pre_camera_control.y)
+                        _ = sdl.SetWindowRelativeMouseMode(a.window, false)
+                        // _ = sdl.SetWindowMouseGrab(a.window, false)
+                }
+
+        case .MOUSE_MOTION:
+                // e := event.motion
+                // a.mouse_delta = {e.xrel, e.yrel} // Use sdl.GetRelativeMouseState() instead
+                
+
+        case .KEY_DOWN:
+                e := event.key
+                switch e.key {
+                case sdl.K_W:
+                        a.directional_input += {.Forward}
+                case sdl.K_S:
+                        a.directional_input += {.Backward}
+                case sdl.K_A:
+                        a.directional_input += {.Left}
+                case sdl.K_D:
+                        a.directional_input += {.Right}
+                case sdl.K_Q:
+                        a.directional_input += {.Down}
+                case sdl.K_E:
+                        a.directional_input += {.Up}
+
+                case sdl.K_LSHIFT:
+                        a.camera_boost = true
+                }
+        
+        case .KEY_UP:
+                e := event.key
+                switch e.key {
+                case sdl.K_W:
+                        a.directional_input -= {.Forward}
+                case sdl.K_S:
+                        a.directional_input -= {.Backward}
+                case sdl.K_A:
+                        a.directional_input -= {.Left}
+                case sdl.K_D:
+                        a.directional_input -= {.Right}
+                case sdl.K_Q:
+                        a.directional_input -= {.Down}
+                case sdl.K_E:
+                        a.directional_input -= {.Up}
+                
+                case sdl.K_LSHIFT:
+                        a.camera_boost = false
+                }
+
         }
+
 
 
         return .CONTINUE
@@ -199,6 +286,7 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
         a : ^App_Data = cast(^App_Data)app_data
         g := &a.graphics_data
 
+        _ = sdl.GetRelativeMouseState(&a.mouse_delta.x, &a.mouse_delta.y)
         
         // TIME
         tick_now := time.tick_now()
@@ -208,7 +296,48 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
         a.time_accumulated += a.delta
 
-        g.camera.position = {math.sin(a.time_accumulated) * 1, 0, -5}
+        if a.has_camera_control {
+                CAMERA_SPEED :: 4
+                CAMERA_SPEED_BOOST :: 30
+                CAMERA_SENS :: 0.005
+
+                a.camera_yaw_pitch += a.mouse_delta * CAMERA_SENS
+                a.camera_yaw_pitch.x = math.wrap(a.camera_yaw_pitch.x, math.TAU)
+                a.camera_yaw_pitch.y = math.clamp(a.camera_yaw_pitch.y, math.PI * -0.5 + 0.01, math.PI * 0.5 - 0.01)
+                q_pitch := linalg.quaternion_from_euler_angle_x_f32(a.camera_yaw_pitch.y)
+                q_yaw := linalg.quaternion_from_euler_angle_y_f32(a.camera_yaw_pitch.x)
+                g.camera.rotation = q_yaw * q_pitch
+
+
+                wish_move: [3]f32
+                if .Forward in a.directional_input {
+                        wish_move.z -= 1
+                }
+                if .Backward in a.directional_input {
+                        wish_move.z += 1
+                }
+                if .Left in a.directional_input {
+                        wish_move.x -= 1
+                }
+                if .Right in a.directional_input {
+                        wish_move.x += 1
+                }
+                if .Up in a.directional_input {
+                        wish_move.y += 1
+                }
+                if .Down in a.directional_input {
+                        wish_move.y -= 1
+                }
+
+                // .xz movement is relative to camera, .y is relative to world up
+                cam_forward := linalg.quaternion_mul_vector3(g.camera.rotation, cal.FORWARD)
+                cam_right := linalg.quaternion_mul_vector3(g.camera.rotation, cal.RIGHT)
+                world_move := cam_forward * wish_move.z + cam_right * wish_move.x + cal.UP * wish_move.y
+                world_move = linalg.clamp_length(world_move, 1)
+               
+                speed : f32 = CAMERA_SPEED_BOOST if a.camera_boost else CAMERA_SPEED
+                g.camera.position += world_move * (speed * a.delta)
+        }
 
 
         // BEGIN GPU
@@ -245,6 +374,8 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
                 _ = sdl.SubmitGPUCommandBuffer(cb)
         }
         // END GPU
+
+        a.mouse_delta = {0, 0}
 
 
         return .CONTINUE

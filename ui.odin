@@ -20,6 +20,8 @@ UI_Data :: struct {
         device                : ^sdl.GPUDevice, // < Not owned by this struct
         sampler               : ^sdl.GPUSampler,
 
+        force_no_consume_event : bool,
+        scene_view_hovered    : bool,
         scene_view_open       : bool,
         scene_view_dimensions : [2]f32,
         scene_view_texture    : ^sdl.GPUTexture, // < Not owned by this struct
@@ -147,13 +149,28 @@ ui_destroy :: proc(u: ^UI_Data, ctx: ^im.Context) {
 
 
 
-ui_process_event :: proc(u: ^UI_Data, event: ^sdl.Event) -> bool {
+ui_process_event :: proc(u: ^UI_Data, event: ^sdl.Event) -> (consumed: bool) {
         // USER redraw events are used to make sure animations are finished before waiting on the queue.
-        if event.type != .USER || event.user.code != USER_EVENT_REDRAW {
+        // Also don't decrement user event counter if scene view is being used.
+        if event.type != .USER || event.user.code != USER_EVENT_REDRAW || u.force_no_consume_event {
                 u.event_counter = 3
         }
 
-        return im_sdl.ProcessEvent(event)
+        im_sdl.ProcessEvent(event)
+
+        if u.force_no_consume_event {
+                return false
+        }
+
+        #partial switch event.type {
+        case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP, .MOUSE_MOTION, .MOUSE_WHEEL:
+                return im.GetIO().WantCaptureMouse
+
+        case .KEY_DOWN, .KEY_UP, .TEXT_INPUT:
+                return im.GetIO().WantCaptureKeyboard
+        }
+
+        return false
 }
 
 
@@ -188,10 +205,18 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
         im.End()
 
 
+        // Scene view window
+        u.scene_view_hovered = false
         im.SetNextWindowSizeConstraints({200, 200}, {max(f32), max(f32)})
         im.PushStyleVarImVec2(.WindowPadding, {0, 0})
         im.PushStyleVar(.WindowBorderSize, 0)
         if im.Begin("Scene", &open, {}) {
+                if im.IsWindowHovered() {
+                        u.scene_view_hovered = true
+                        im.SetNextFrameWantCaptureMouse(false)
+                        im.SetNextFrameWantCaptureKeyboard(false)
+                }
+
                 u.scene_view_open = true
                 // Get dimensions of scene window to pass to scene next frame
                 min := im.GetWindowContentRegionMin()
@@ -208,6 +233,8 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
         }  else {
                 u.scene_view_open = false
         }
+
+
         im.End()
         im.PopStyleVar(2)
 
