@@ -35,10 +35,12 @@ Graphics_Data :: struct {
         quad_mesh : cal.Mesh,
       
         // MATERIAL
-        pipeline       : ^sdl.GPUGraphicsPipeline,
+        material : cal.Material,
+        pipeline : ^sdl.GPUGraphicsPipeline,
 
         // TEXTURE
-        texture        : ^sdl.GPUTexture,
+        // texture     : ^sdl.GPUTexture,
+        texture        : cal.Texture,
         sampler        : ^sdl.GPUSampler,
 
         // RENDER STATE
@@ -103,6 +105,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         }}}
 
         g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
+        g.texture, _   = cal.asset_load_texture(&r, "textures/door.cal")
 
 
 
@@ -126,32 +129,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         check_sdl_ptr(g.sampler)
 
 
-        texture_bin := #load("imported/textures/door.png")
-        texture_image, err := image.load_from_bytes(texture_bin, {.alpha_add_if_missing})
-        assert(err == {}, "Could not load image")
-        defer image.destroy(texture_image)
-
-        texture_info := sdl.GPUTextureCreateInfo {
-                type                 = .D2,
-                format               = .R8G8B8A8_UNORM if texture_image.depth==8 else .R16G16B16A16_UNORM,
-                usage                = {.SAMPLER},
-                width                = u32(texture_image.width),
-                height               = u32(texture_image.height),
-                layer_count_or_depth = 1,
-                num_levels           = 1,
-        }
-        g.texture = sdl.CreateGPUTexture(device, texture_info)
-        check_sdl_ptr(g.texture)
-
-        texture_pixels := bytes.buffer_to_bytes(&texture_image.pixels)
-
-        texture_staging_buffer_info := sdl.GPUTransferBufferCreateInfo {
-                usage = .UPLOAD,
-                size = u32(slice.size(texture_pixels)),
-        }
-        texture_staging_buffer := sdl.CreateGPUTransferBuffer(device, texture_staging_buffer_info)
-        defer sdl.ReleaseGPUTransferBuffer(device, texture_staging_buffer)
-        graphics_upload_texture(device, r.copy_pass, texture_pixels, texture_staging_buffer, g.texture, u32(texture_image.width), u32(texture_image.height))
 
 
         resolution_x, resolution_y : i32
@@ -186,10 +163,10 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
 
         // Shaders
-        vertex_shader, _ := cal.asset_load_shader(g.device, "shaders/shader.vert.cal")
+        vertex_shader, _ := cal.asset_load_shader(&r, "shaders/shader.vert.cal")
         defer cal.shader_destroy(device, &vertex_shader)
 
-        fragment_shader, _ := cal.asset_load_shader(g.device, "shaders/shader.frag.cal")
+        fragment_shader, _ := cal.asset_load_shader(&r, "shaders/shader.frag.cal")
         defer cal.shader_destroy(device, &fragment_shader)
 
 
@@ -256,37 +233,46 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.pipeline = sdl.CreateGPUGraphicsPipeline(device, pipeline_info)
         check_sdl_ptr(g.pipeline)
 
+        g.material = cal.Material {
+                vertex_input      = {.Position, .Tex_Coord_0},
+                pipeline          = g.pipeline,
+                textures_vertex   = {},
+                textures_fragment = {},
+        }
+        sa.append(&g.material.textures_fragment, g.texture)
+
+
         cal.resource_upload_end_wait(&r)
 
         g.mesh_cb, _ = cal.mesh_render_command_buffer_create()
 }
 
-graphics_upload_texture :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_texture: ^sdl.GPUTexture, width, height: u32) {
-        mapped := sdl.MapGPUTransferBuffer(device, staging_buffer, false)
-        mem.copy(mapped, raw_data(data), slice.size(data))
-        sdl.UnmapGPUTransferBuffer(device, staging_buffer)
-       
-
-        transfer_info := sdl.GPUTextureTransferInfo {
-                transfer_buffer = staging_buffer,
-                offset          = 0,
-                pixels_per_row  = width,
-                rows_per_layer  = height,
-        } 
-
-        texture_region := sdl.GPUTextureRegion {
-                texture   = dest_texture,
-                mip_level = 0,
-                layer     = 0,
-                x         = 0,
-                y         = 0,
-                z         = 0,
-                w         = width,
-                h         = height,
-                d         = 1,
-        }
-        sdl.UploadToGPUTexture(pass, transfer_info, texture_region, false)
-}
+// graphics_upload_texture :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_texture: ^sdl.GPUTexture, width, height: u32) {
+//         mapped := sdl.MapGPUTransferBuffer(device, staging_buffer, false)
+//         mem.copy(mapped, raw_data(data), slice.size(data))
+//         sdl.UnmapGPUTransferBuffer(device, staging_buffer)
+//        
+//
+//         transfer_info := sdl.GPUTextureTransferInfo {
+//                 transfer_buffer = staging_buffer,
+//                 offset          = 0,
+//                 pixels_per_row  = width,
+//                 rows_per_layer  = height,
+//         } 
+//
+//         texture_region := sdl.GPUTextureRegion {
+//                 texture   = dest_texture,
+//                 mip_level = 0,
+//                 layer     = 0,
+//                 x         = 0,
+//                 y         = 0,
+//                 z         = 0,
+//                 w         = width,
+//                 h         = height,
+//                 d         = 1,
+//         }
+//         sdl.UploadToGPUTexture(pass, transfer_info, texture_region, false)
+// }
 
 
 graphics_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) {
@@ -333,11 +319,11 @@ graphics_scene_view_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, di
 graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
         cal.mesh_render_command_buffer_destroy(&g.mesh_cb)
         cal.mesh_destroy(device, &g.quad_mesh)
+        cal.texture_destroy(device, &g.texture)
 
         sdl.ReleaseGPUGraphicsPipeline(device, g.pipeline)
 
         sdl.ReleaseGPUSampler(device, g.sampler)
-        sdl.ReleaseGPUTexture(device, g.texture)
         sdl.ReleaseGPUTexture(device, g.render_texture)
         sdl.ReleaseGPUTexture(device, g.depth_texture)
 
@@ -348,7 +334,7 @@ graphics_destroy :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice) {
 
 
 
-graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPUTexture) {
+graphics_draw :: proc(g: ^Graphics_Data, entities: [dynamic]Entity, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPUTexture) {
         mb := &g.mesh_cb
 
         rt_info := sdl.GPUColorTargetInfo {
@@ -385,22 +371,11 @@ graphics_draw :: proc(g: ^Graphics_Data, cb: ^sdl.GPUCommandBuffer, rt: ^sdl.GPU
         cal.mesh_render_begin(mb, &opaque_pass_info)
 
 
-        // Temp entity definitions - should be stored in active scene/resource db
-        mesh_material := cal.Material {
-                vertex_input      = {.Position, .Tex_Coord_0},
-                pipeline          = g.pipeline,
-                textures_fragment = {cal.Texture{gpu_texture=g.texture, type=.Color}, 1}, // small_array literal
+        for &e in entities {
+                if .Has_Mesh_Renderer in e.flags {
+                        cal.mesh_render_trs(mb, &e.mesh_renderer, e.position, e.rotation, e.scale)
+                }
         }
-
-        mesh_instance := cal.Mesh_Renderer {
-                mesh      = g.quad_mesh,
-                materials = {&mesh_material, 1}, // small_array literal
-        }
-
-
-        // Draw meshes
-        cal.mesh_render_trs(mb, &mesh_instance, {-0.6, 0, 0})
-        cal.mesh_render_trs(mb, &mesh_instance, {0, 0, 100})
 
         cal.mesh_render_end(mb)
 }

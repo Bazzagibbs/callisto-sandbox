@@ -11,6 +11,8 @@ import "core:math/linalg"
 import cal "callisto"
 import circle "callisto/circular_buffer"
 import "callisto/config"
+import "core:strings"
+import sa "core:container/small_array"
 
 import sdl "vendor:sdl3"
 
@@ -20,27 +22,29 @@ import "callisto/editor/ufbx"
 
 
 App_Data :: struct {
-        window        : ^sdl.Window,
-        device        : ^sdl.GPUDevice,
-        shader        : ^sdl.GPUShader,
-        ui_context    : ^im.Context,
+        window                       : ^sdl.Window,
+        device                       : ^sdl.GPUDevice,
+        shader                       : ^sdl.GPUShader,
+        ui_context                   : ^im.Context,
 
-        tick_begin    : time.Tick,
-        tick_frame    : time.Tick,
-        delta         : f32, // Seconds
-        time_accumulated: f32,
+        tick_begin                   : time.Tick,
+        tick_frame                   : time.Tick,
+        delta                        : f32, // Seconds
+        time_accumulated             : f32,
 
-        graphics_data : Graphics_Data,
-        ui_data       : UI_Data,
+        graphics_data                : Graphics_Data,
+        ui_data                      : UI_Data,
 
-        scene         : cal.Scene,
+        scene                        : cal.Scene,
+        entities                     : [dynamic]Entity,
 
         camera_yaw_pitch             : [2]f32,
         has_camera_control           : bool,
         mouse_delta                  : [2]f32,
         mouse_pos_pre_camera_control : [2]f32,
         directional_input            : bit_set[Direction],
-        camera_boost : bool,
+        camera_boost                 : bool,
+
 }
 
 Direction :: enum {
@@ -156,7 +160,32 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         
 
         g.camera.position = {0, 0, -5}
+        
 
+
+        quad_mesh_renderer := cal.Mesh_Renderer {
+                mesh      = g.quad_mesh,
+                materials = {},
+        }
+        sa.append(&quad_mesh_renderer.materials, &g.material)
+
+
+        a.entities = make([dynamic]Entity, 1024)
+        append(&a.entities, Entity {
+                flags         = {.Has_Mesh_Renderer},
+                position      = {0, 0, 30},
+                rotation      = linalg.QUATERNIONF32_IDENTITY,
+                scale         = {1, 1, 1},
+                mesh_renderer = quad_mesh_renderer,
+        })
+
+        append(&a.entities, Entity {
+                flags         = {.Has_Mesh_Renderer},
+                position      = {-0.5, 0, 0},
+                rotation      = linalg.QUATERNIONF32_IDENTITY,
+                scale         = {1, 1, 1},
+                mesh_renderer = quad_mesh_renderer,
+        })
         return .CONTINUE
 }
 
@@ -170,6 +199,7 @@ callisto_quit :: proc(app_data: rawptr, result: sdl.AppResult) {
 
         _ = sdl.WaitForGPUIdle(a.device)
        
+        delete(a.entities)
         cal.scene_destroy(&a.scene)
 
         ui_destroy(u, a.ui_context)
@@ -352,7 +382,7 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
                 // GRAPHICS
                 if a.ui_data.scene_view_open {
-                        graphics_draw(g, cb, g.render_texture)
+                        graphics_draw(g, a.entities, cb, g.render_texture)
                 }
 
                 u.scene_view_texture = g.render_texture

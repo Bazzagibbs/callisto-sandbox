@@ -377,5 +377,6 @@ ui_draw_inspector_transform :: proc(s: ^cal.Scene, t: cal.Transform) {
 
                 im.TreePop()
         }
-
 }
+
+
