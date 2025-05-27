@@ -39,14 +39,16 @@ Graphics_Data :: struct {
         pipeline : ^sdl.GPUGraphicsPipeline,
 
         // TEXTURE
-        // texture     : ^sdl.GPUTexture,
         texture        : cal.Texture,
         sampler        : ^sdl.GPUSampler,
 
         // RENDER STATE
-        render_texture : ^sdl.GPUTexture,
-        depth_texture  : ^sdl.GPUTexture,
-        mesh_cb        : cal.Mesh_Render_Command_Buffer,
+        render_texture_msaa : ^sdl.GPUTexture, // resolves into render_texture
+        render_texture      : ^sdl.GPUTexture,
+        depth_texture       : ^sdl.GPUTexture,
+        depth_format        : sdl.GPUTextureFormat,
+        msaa_count          : sdl.GPUSampleCount,
+        mesh_cb             : cal.Mesh_Render_Command_Buffer,
 
         // STAGING
         constants_staging_buffer : ^sdl.GPUTransferBuffer,
@@ -78,12 +80,21 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                 far_plane    = 10_000,
         }
 
+        // Check which depth format is available
+        if sdl.GPUTextureSupportsFormat(device, .D32_FLOAT, .D2, {.DEPTH_STENCIL_TARGET}) {
+                g.depth_format = .D32_FLOAT
+        } else {
+                g.depth_format = .D24_UNORM
+        }
+
+        g.msaa_count = ._4
+
+
         // Transfer read-only data to GPU
         r, _ := cal.resource_uploader_create(device)
         defer cal.resource_uploader_destroy(&r)
 
-        cal.resource_upload_begin(&r)
-       
+        cal.resource_upload_begin(&r)       
 
         mesh_info := cal.Asset_Mesh { submesh_infos = []cal.Submesh_Info{ cal.Submesh_Info{
                 index_data = {
@@ -107,9 +118,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
         g.texture, _   = cal.asset_load_texture(&r, "textures/door.cal")
 
-
-
-
         sampler_info := sdl.GPUSamplerCreateInfo {
                 min_filter        = .LINEAR,
                 mag_filter        = .LINEAR,
@@ -128,38 +136,9 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.sampler = sdl.CreateGPUSampler(device, sampler_info)
         check_sdl_ptr(g.sampler)
 
-
-
-
         resolution_x, resolution_y : i32
         _ = sdl.GetWindowSizeInPixels(window, &resolution_x, &resolution_y)
-
-        rt_info := sdl.GPUTextureCreateInfo {
-                type                 = .D2,
-                format               = sdl.GetGPUSwapchainTextureFormat(g.device, g.window),
-                usage                = {.COLOR_TARGET, .SAMPLER},
-                width                = u32(resolution_x),
-                height               = u32(resolution_y),
-                layer_count_or_depth = 1,
-                num_levels           = 1,
-                sample_count         = ._1, // MSAA?
-        }
-        g.render_texture = sdl.CreateGPUTexture(device, rt_info)
-        check_sdl_ptr(g.render_texture)
-
-
-        depth_info := sdl.GPUTextureCreateInfo {
-                type                 = .D2,
-                format               = .D32_FLOAT,
-                usage                = {.DEPTH_STENCIL_TARGET},
-                width                = u32(resolution_x),
-                height               = u32(resolution_y),
-                layer_count_or_depth = 1,
-                num_levels           = 1,
-                sample_count         = ._1, // MSAA?
-        }
-        g.depth_texture = sdl.CreateGPUTexture(device, depth_info)
-        check_sdl_ptr(g.depth_texture)
+        graphics_create_render_targets(g, device, u32(resolution_x), u32(resolution_y))
 
 
         // Shaders
@@ -214,7 +193,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                         front_face = .COUNTER_CLOCKWISE,
                 },
                 multisample_state = {
-                        sample_count = ._1,
+                        sample_count = g.msaa_count,
                 },
                 depth_stencil_state = {
                         compare_op         = .GREATER_OR_EQUAL,
@@ -225,7 +204,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                 target_info = {
                         color_target_descriptions = raw_data(pipeline_color_targets),
                         num_color_targets         = u32(len(pipeline_color_targets)),
-                        depth_stencil_format      = depth_info.format,
+                        depth_stencil_format      = g.depth_format,
                         has_depth_stencil_target  = true,
                 }
                 
@@ -247,33 +226,6 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         g.mesh_cb, _ = cal.mesh_render_command_buffer_create()
 }
 
-// graphics_upload_texture :: proc(device: ^sdl.GPUDevice, pass: ^sdl.GPUCopyPass, data: $T/[]$E, staging_buffer: ^sdl.GPUTransferBuffer, dest_texture: ^sdl.GPUTexture, width, height: u32) {
-//         mapped := sdl.MapGPUTransferBuffer(device, staging_buffer, false)
-//         mem.copy(mapped, raw_data(data), slice.size(data))
-//         sdl.UnmapGPUTransferBuffer(device, staging_buffer)
-//        
-//
-//         transfer_info := sdl.GPUTextureTransferInfo {
-//                 transfer_buffer = staging_buffer,
-//                 offset          = 0,
-//                 pixels_per_row  = width,
-//                 rows_per_layer  = height,
-//         } 
-//
-//         texture_region := sdl.GPUTextureRegion {
-//                 texture   = dest_texture,
-//                 mip_level = 0,
-//                 layer     = 0,
-//                 x         = 0,
-//                 y         = 0,
-//                 z         = 0,
-//                 w         = width,
-//                 h         = height,
-//                 d         = 1,
-//         }
-//         sdl.UploadToGPUTexture(pass, transfer_info, texture_region, false)
-// }
-
 
 graphics_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) {
 
@@ -283,35 +235,60 @@ graphics_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.
 // Called when the Scene window in the editor is resized
 graphics_scene_view_resize :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, dimensions: [2]u32) {
         _ = sdl.WaitForGPUIdle(device)
+        sdl.ReleaseGPUTexture(device, g.render_texture_msaa)
         sdl.ReleaseGPUTexture(device, g.render_texture)
         sdl.ReleaseGPUTexture(device, g.depth_texture)
-        
+
+        graphics_create_render_targets(g, device, dimensions.x, dimensions.y)
+}
+
+
+graphics_create_render_targets :: proc (g: ^Graphics_Data, device: ^sdl.GPUDevice, resolution_x, resolution_y: u32) {
+        rt_msaa_info := sdl.GPUTextureCreateInfo {
+                type                 = .D2,
+                format               = sdl.GetGPUSwapchainTextureFormat(g.device, g.window),
+                usage                = {.COLOR_TARGET, /* .SAMPLER */ }, // Resolved in render pass
+                width                = resolution_x,
+                height               = resolution_y,
+                layer_count_or_depth = 1,
+                num_levels           = 1,
+                sample_count         = g.msaa_count,
+        }
+        g.render_texture_msaa = sdl.CreateGPUTexture(device, rt_msaa_info)
+        check_sdl_ptr(g.render_texture_msaa)
+
+
+
         rt_info := sdl.GPUTextureCreateInfo {
                 type                 = .D2,
                 format               = sdl.GetGPUSwapchainTextureFormat(g.device, g.window),
                 usage                = {.COLOR_TARGET, .SAMPLER},
-                width                = dimensions.x,
-                height               = dimensions.y,
+                width                = resolution_x,
+                height               = resolution_y,
                 layer_count_or_depth = 1,
                 num_levels           = 1,
-                sample_count         = ._1, // MSAA?
+                sample_count         = ._1,
         }
         g.render_texture = sdl.CreateGPUTexture(device, rt_info)
+        check_sdl_ptr(g.render_texture)
 
-
+       
         depth_info := sdl.GPUTextureCreateInfo {
                 type                 = .D2,
-                format               = .D32_FLOAT,
+                format               = g.depth_format,
                 usage                = {.DEPTH_STENCIL_TARGET},
-                width                = dimensions.x,
-                height               = dimensions.y,
+                width                = u32(resolution_x),
+                height               = u32(resolution_y),
                 layer_count_or_depth = 1,
                 num_levels           = 1,
-                sample_count         = ._1, // MSAA?
+                sample_count         = g.msaa_count,
         }
         g.depth_texture = sdl.CreateGPUTexture(device, depth_info)
+        check_sdl_ptr(g.depth_texture)
 
-        g.camera.aspect_ratio = f32(dimensions.x) / f32(dimensions.y)
+        g.depth_format = depth_info.format
+        
+        g.camera.aspect_ratio = f32(resolution_x) / f32(resolution_y)
 }
 
 
@@ -338,13 +315,17 @@ graphics_draw :: proc(g: ^Graphics_Data, entities: [dynamic]Entity, cb: ^sdl.GPU
         mb := &g.mesh_cb
 
         rt_info := sdl.GPUColorTargetInfo {
-                texture              = rt,
-                mip_level            = 0,
-                layer_or_depth_plane = 0,
-                clear_color          = {0.3, 0.3, 0.3, 1},
-                load_op              = .CLEAR,
-                store_op             = .STORE,
-                cycle                = true,
+                texture               = g.render_texture_msaa,
+                mip_level             = 0,
+                layer_or_depth_plane  = 0,
+                clear_color           = {0.3, 0.3, 0.3, 1},
+                load_op               = .CLEAR,
+                store_op              = .RESOLVE,
+                resolve_texture       = rt,
+                resolve_mip_level     = 0,
+                resolve_layer         = 0,
+                cycle                 = true,
+                cycle_resolve_texture = true,
         }
 
         dt_info := sdl.GPUDepthStencilTargetInfo {
