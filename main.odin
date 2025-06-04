@@ -326,6 +326,8 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
         a.time_accumulated += a.delta
 
+        a.entities[1].position.x = 1
+
         if a.has_camera_control {
                 CAMERA_SPEED :: 4
                 CAMERA_SPEED_BOOST :: 30

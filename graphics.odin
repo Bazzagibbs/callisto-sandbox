@@ -116,7 +116,8 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
         }}}
 
         g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
-        g.texture, _   = cal.asset_load_texture(&r, "textures/door.cal")
+        // g.texture, _   = cal.asset_load_texture(&r, "textures/door.cal")
+        g.texture, _   = cal.asset_load_texture(&r, "textures/checkerboard_bw.cal")
 
         sampler_info := sdl.GPUSamplerCreateInfo {
                 min_filter        = .LINEAR,
@@ -126,10 +127,10 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                 address_mode_v    = .CLAMP_TO_EDGE,
                 address_mode_w    = .CLAMP_TO_EDGE,
                 mip_lod_bias      = 0,
-                max_anisotropy    = 1,
+                max_anisotropy    = 8,
                 min_lod           = 0,
                 max_lod           = max(f32),
-                enable_anisotropy = false,
+                enable_anisotropy = true,
                 enable_compare    = false,
 
         }
