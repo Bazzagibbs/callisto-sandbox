@@ -1,9 +1,13 @@
 package callisto_sandbox
 
+import "base:intrinsics"
+import "base:runtime"
+import "core:reflect"
 import "core:log"
 import "core:math"
 import "core:strings"
 import "core:math/linalg"
+import "core:fmt"
 
 import sdl "vendor:sdl3"
 
@@ -194,13 +198,14 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
                 hierarchy_window_flags += {.UnsavedDocument}
         }
         if im.Begin("Hierarchy", &open, hierarchy_window_flags) {
-                ui_draw_scene_hierarchy(&a.scene)
+                // ui_draw_scene_hierarchy(&a.scene)
+                ui_draw_entities(&a.entities, &a.entity_selected)
         }
         im.End()
 
 
         if im.Begin("Inspector", &open) {
-                ui_draw_inspector(&a.scene)
+                ui_draw_inspector(&a.entities, &a.entity_selected)
         }
         im.End()
 
@@ -244,139 +249,340 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
 }
 
 
-
-ui_draw_scene_hierarchy :: proc(s: ^cal.Scene) {
-        for root_node in s.transform_roots {
-                draw_transform_node(s, root_node)
-        }
-
-        draw_transform_node :: proc(s: ^cal.Scene, transform: cal.Transform) {
-                data := cal.transform_get_data(s, transform)
-                flags : im.TreeNodeFlags = { .OpenOnArrow, .OpenOnDoubleClick, .NavLeftJumpsBackHere, .SpanFullWidth }
-
-                im.PushIDInt(i32(transform))
-
-                if len(data.children) == 0 {
-                        flags += {.Leaf }
-                }
+// Set selected_id = -1 to deselect everything
+// Multi-select will need a new implementation. Maybe copy blender's selected (multi) + active (single)?
+ui_draw_entities :: proc(entities: ^$T/[dynamic]$E, selected_id: ^int) where intrinsics.type_is_subtype_of(E, cal.Entity_Base) {
+        for &e, i in entities {
+                flags : im.TreeNodeFlags = { .OpenOnArrow, .OpenOnDoubleClick, .NavLeftJumpsBackHere, .SpanFullWidth, .Leaf }
                 
-                if s.editor_state.transform_selected_latest == transform {
+                if selected_id^ == i {
                         flags += {.Selected}
                 }
 
-                if data.editor_state.use_hierarchy_color {
-                        im.PushStyleColorImVec4(im.Col.Button, data.editor_state.hierarchy_color)
-                }
-
-                node_open := im.TreeNodeExStr("", flags, "%s", strings.unsafe_string_to_cstring(data.name))
-
-                if data.editor_state.use_hierarchy_color {
-                        im.PopStyleColor()
-                }
-
-                // Only select hierarchy node if the toggle arrow wasn't pressed
+                im.PushIDInt(i32(i))
+                name := strings.unsafe_string_to_cstring(e.name) if e.name != "" else "Entity"
+                node_open := im.TreeNodeExStr("", flags, "%s", strings.unsafe_string_to_cstring(e.name))
+                
                 if im.IsItemFocused() {
-                        s.editor_state.transform_selected_latest = transform
+                        selected_id^ = i
                 }
-
 
                 if node_open {
-                        for child in data.children {
-                                draw_transform_node(s, child)
-                        }
-
-
                         im.TreePop()
                 }
-
                 im.PopID()
-
+                
+                
         }
 }
 
-
-ui_draw_inspector :: proc(s: ^cal.Scene) {
-        if s.editor_state.transform_selected_latest == cal.TRANSFORM_NONE {
+ui_draw_inspector :: proc(entities: ^$T/[dynamic]$E, selected_id: ^int) where intrinsics.type_is_subtype_of(E, cal.Entity_Base) {
+        if selected_id^ <= -1 {
                 return
         }
-        
-        // im.TextUnformatted(strings.unsafe_string_to_cstring(cal.transform_get_name(s, s.editor_state.transform_selected_latest)))
-        ui_draw_inspector_name(s, s.editor_state.transform_selected_latest)
-        ui_draw_inspector_transform(s, s.editor_state.transform_selected_latest)
-        // Add inspector panels here
-}
 
+        selected := &entities[selected_id^]
 
-ui_draw_inspector_name :: proc(s: ^cal.Scene, t: cal.Transform) {
-        // TODO wrap this for string builder
-        buf : [128]u8
-        copy(buf[:], cal.transform_get_name(s, t))
-        buf[127] = 0
-
-        input_result := im.InputText("Name", cstring(&buf[0]), len(buf) - 1, {.EnterReturnsTrue}) 
-
-        if im.IsItemDeactivatedAfterEdit() {
-                if input_result {
-                        log.info("Set name:", cstring(&buf[0]))
-                        cal.transform_set_name(s, t, string(buf[:]))
+        ti := runtime.type_info_base(type_info_of(E)).variant.(runtime.Type_Info_Struct)
+        for i in 0..<ti.field_count {
+                field_any := any {
+                        data = rawptr(uintptr(selected) + ti.offsets[i]),
+                        id = ti.types[i].id,
                 }
+                ui_draw_any(ti.names[i], field_any)
+
+                // TODO: Promote "using" fields to current scope
         }
 }
 
-ui_draw_inspector_transform :: proc(s: ^cal.Scene, t: cal.Transform) {
-        if im.TreeNodeEx("Transform", {.DefaultOpen, .SpanFullWidth}) {
+_type_info_int_to_im_datatype :: proc(ti: ^runtime.Type_Info) -> (type: im.DataType, ok: bool) {
+        ok = true
 
-                // POSITION 
-                {
-                        temp_pos := cal.transform_get_local_position(s, t)
-                        if im.DragFloat3("Position", &temp_pos, v_speed = 0.1, flags = {}) {
-                                cal.transform_set_local_position(s, t, temp_pos)
-                        }
+        tvar := ti.variant.(runtime.Type_Info_Integer) or_return
 
-                        if im.IsItemDeactivatedAfterEdit() {
-                                log.info("Set local position:", cal.transform_get_name(s, t), ":", temp_pos)
-                                cal.scene_set_dirty(s)
-                                // TODO: commit to undo history
-                        }
-                }
-
-
-                // ROTATION - Inspector is in euler degrees
-                {
-                        temp_rot_quat := cal.transform_get_local_rotation(s, t)
-                        temp_rot_eul : [3]f32
-                        temp_rot_eul.x, temp_rot_eul.y, temp_rot_eul.z = linalg.euler_angles_from_quaternion_f32(temp_rot_quat, .XYZ) // Euler order might need to change when I decide on forward/up axes
-                        temp_rot_eul *= linalg.DEG_PER_RAD
-                        if im.DragFloat3("Rotation", &temp_rot_eul, v_speed = 0.1, flags = {}) {
-                                temp_rot_eul *= linalg.RAD_PER_DEG
-                                temp_rot_quat = linalg.quaternion_from_euler_angles_f32(expand_values(temp_rot_eul), .XYZ)
-                                cal.transform_set_local_rotation(s, t, temp_rot_quat)
-                        }
-
-                        if im.IsItemDeactivatedAfterEdit() {
-                                log.info("Set local rotation:", cal.transform_get_name(s, t), ":", temp_rot_eul)
-                                cal.scene_set_dirty(s)
-                                // TODO: commit to undo history
-                        }
-                }
-
-                // SCALE
-                {
-                        temp_scale := cal.transform_get_local_scale(s, t)
-                        if im.DragFloat3("Scale", &temp_scale, v_speed = 0.1, flags = {}) {
-                                cal.transform_set_local_scale(s, t, temp_scale)
-                        }
-
-                        if im.IsItemDeactivatedAfterEdit() {
-                                log.info("Set local scale:", cal.transform_get_name(s, t), ":", temp_scale)
-                                cal.scene_set_dirty(s)
-                                // TODO: commit to undo history
-                        }
-                }
-
-
-                im.TreePop()
+        switch ti.size {
+        case 1:
+                type = .S8 if tvar.signed else .U8
+                return
+        case 2:
+                type = .S16 if tvar.signed else .U16
+                return
+        case 4:
+                type = .S32 if tvar.signed else .U32
+                return
+        case 8:
+                type = .S64 if tvar.signed else .U64
+                return
         }
+
+
+        return {}, false
+}
+
+_type_info_float_to_im_datatype :: proc(ti: ^runtime.Type_Info) -> (type: im.DataType, ok: bool) {
+        ok = true
+        _ = ti.variant.(runtime.Type_Info_Float) or_return
+
+        switch ti.size {
+        case 4:
+                type = .Float
+                return
+        case 8:
+                type = .Double
+                return
+        }
+
+        return {}, false
 }
 
 
+ui_draw_any :: proc(field_name: string, val: any) {
+        changed := false
+
+        ti_base := runtime.type_info_base(type_info_of(val.id))
+        switch ti in ti_base.variant {
+        case runtime.Type_Info_Integer:
+                type, ok := _type_info_int_to_im_datatype(ti_base)
+                if !ok {
+                        im.Text("%s: Unsupported integer size", field_name)
+                        return
+                }
+                changed = im.DragScalar(strings.unsafe_string_to_cstring(field_name), type, val.data)
+
+        case runtime.Type_Info_Float:
+                type, ok := _type_info_float_to_im_datatype(ti_base)
+                if !ok {
+                        im.Text("%s: Unsupported float size", field_name)
+                        return
+                }
+                changed = im.DragScalar(strings.unsafe_string_to_cstring(field_name), type, val.data, v_speed = 0.1)
+                
+        case runtime.Type_Info_Array:
+                is_scalar: bool
+                type: im.DataType
+                // TODO: color picker?
+                #partial switch e_ti in ti.elem.variant {
+                case runtime.Type_Info_Integer:
+                        ok: bool
+                        type, ok = _type_info_int_to_im_datatype(ti.elem)
+                        if !ok {
+                                im.Text("%s: Array of integers, element size unsupported: %ld", field_name, ti.elem.size)
+                                return
+                        }
+                        is_scalar = true
+
+                case runtime.Type_Info_Float:
+                        ok: bool
+                        type, ok = _type_info_float_to_im_datatype(ti.elem)
+                        if !ok {
+                                im.Text("%s: Array of floats, element size unsupported: %ld", field_name, ti.elem.size)
+                                return
+                        }
+                        is_scalar = true
+                case:
+                        im.Text("%s: [%d]Array, element type unsupported", field_name, ti.count)                
+                        return
+                        
+                }
+
+                switch ti.count {
+                case 2, 3, 4:
+                        changed = im.DragScalarN(strings.unsafe_string_to_cstring(field_name), type, val.data, i32(ti.count), v_speed = 0.1)
+                case:
+                        im.Text("%s: Unimplemented [%d]Array", field_name, ti.count)                
+                        return
+                }
+
+
+        // Unimplemented
+        // =============
+        case runtime.Type_Info_Named:
+                im.Text("%s: Unimplemented (TI_Named)", field_name)
+        case runtime.Type_Info_Rune:
+                im.Text("%s: Unimplemented (TI_Rune)", field_name)
+        case runtime.Type_Info_Complex:
+                im.Text("%s: Unimplemented (TI_Complex)", field_name)
+        case runtime.Type_Info_Quaternion:
+                im.Text("%s: Unimplemented (TI_Quaternion)", field_name)
+        case runtime.Type_Info_String:
+                im.Text("%s: Unimplemented (TI_String)", field_name)
+        case runtime.Type_Info_Boolean:
+                im.Text("%s: Unimplemented (TI_Boolean)", field_name)
+        case runtime.Type_Info_Any:
+                im.Text("%s: Unimplemented (TI_Any)", field_name)
+        case runtime.Type_Info_Type_Id:
+                im.Text("%s: Unimplemented (TI_Type_ID)", field_name)
+        case runtime.Type_Info_Pointer:
+                im.Text("%s: Unimplemented (TI_Pointer)", field_name)
+        case runtime.Type_Info_Multi_Pointer:
+                im.Text("%s: Unimplemented (TI_Multi_Pointer)", field_name)
+        case runtime.Type_Info_Procedure:
+                im.Text("%s: Unimplemented (TI_Procedure)", field_name)
+        case runtime.Type_Info_Enumerated_Array:
+                im.Text("%s: Unimplemented (TI_Enumerated_Array)", field_name)
+        case runtime.Type_Info_Dynamic_Array:
+                im.Text("%s: Unimplemented (TI_Dynamic_Array)", field_name)
+        case runtime.Type_Info_Slice:
+                im.Text("%s: Unimplemented (TI_Slice)", field_name)
+        case runtime.Type_Info_Parameters:
+                im.Text("%s: Unimplemented (TI_Parameters)", field_name)
+        case runtime.Type_Info_Struct:
+                im.Text("%s: Unimplemented (TI_Struct)", field_name)
+        case runtime.Type_Info_Union:
+                im.Text("%s: Unimplemented (TI_Union)", field_name)
+        case runtime.Type_Info_Enum:
+                im.Text("%s: Unimplemented (TI_Enum)", field_name)
+        case runtime.Type_Info_Map:
+                im.Text("%s: Unimplemented (TI_Map)", field_name)
+        case runtime.Type_Info_Bit_Set:
+                im.Text("%s: Unimplemented (TI_Bit_Set)", field_name)
+        case runtime.Type_Info_Simd_Vector:
+                im.Text("%s: Unimplemented (TI_SIMD_Vector)", field_name)
+        case runtime.Type_Info_Matrix:
+                im.Text("%s: Unimplemented (TI_Matrix)", field_name)
+        case runtime.Type_Info_Soa_Pointer:
+                im.Text("%s: Unimplemented (TI_Soa_Pointer)", field_name)
+        case runtime.Type_Info_Bit_Field:
+                im.Text("%s: Unimplemented (TI_Bit_Field)", field_name)
+        }
+}
+
+ui_draw_quaternion :: proc()
+
+
+// ui_draw_scene_hierarchy :: proc(s: ^cal.Scene) {
+//         for root_node in s.transform_roots {
+//                 draw_transform_node(s, root_node)
+//         }
+//
+//         draw_transform_node :: proc(s: ^cal.Scene, transform: cal.Transform) {
+//                 data := cal.transform_get_data(s, transform)
+//                 flags : im.TreeNodeFlags = { .OpenOnArrow, .OpenOnDoubleClick, .NavLeftJumpsBackHere, .SpanFullWidth }
+//
+//                 im.PushIDInt(i32(transform))
+//
+//                 if len(data.children) == 0 {
+//                         flags += {.Leaf }
+//                 }
+//                 
+//                 if s.editor_state.transform_selected_latest == transform {
+//                         flags += {.Selected}
+//                 }
+//
+//                 if data.editor_state.use_hierarchy_color {
+//                         im.PushStyleColorImVec4(im.Col.Button, data.editor_state.hierarchy_color)
+//                 }
+//
+//                 node_open := im.TreeNodeExStr("", flags, "%s", strings.unsafe_string_to_cstring(data.name))
+//
+//                 if data.editor_state.use_hierarchy_color {
+//                         im.PopStyleColor()
+//                 }
+//
+//                 // Only select hierarchy node if the toggle arrow wasn't pressed
+//                 if im.IsItemFocused() {
+//                         s.editor_state.transform_selected_latest = transform
+//                 }
+//
+//
+//                 if node_open {
+//                         for child in data.children {
+//                                 draw_transform_node(s, child)
+//                         }
+//
+//
+//                         im.TreePop()
+//                 }
+//
+//                 im.PopID()
+//
+//         }
+// }
+
+
+// ui_draw_transform_inspector :: proc(s: ^cal.Scene) {
+//         if s.editor_state.transform_selected_latest == cal.TRANSFORM_NONE {
+//                 return
+//         }
+//         
+//         // im.TextUnformatted(strings.unsafe_string_to_cstring(cal.transform_get_name(s, s.editor_state.transform_selected_latest)))
+//         ui_draw_inspector_name(s, s.editor_state.transform_selected_latest)
+//         ui_draw_inspector_transform(s, s.editor_state.transform_selected_latest)
+//         // Add inspector panels here
+// }
+
+
+// ui_draw_inspector_name :: proc(s: ^cal.Scene, t: cal.Transform) {
+//         // TODO wrap this for string builder
+//         buf : [128]u8
+//         copy(buf[:], cal.transform_get_name(s, t))
+//         buf[127] = 0
+//
+//         input_result := im.InputText("Name", cstring(&buf[0]), len(buf) - 1, {.EnterReturnsTrue}) 
+//
+//         if im.IsItemDeactivatedAfterEdit() {
+//                 if input_result {
+//                         log.info("Set name:", cstring(&buf[0]))
+//                         cal.transform_set_name(s, t, string(buf[:]))
+//                 }
+//         }
+// }
+
+// ui_draw_inspector_transform :: proc(s: ^cal.Scene, t: cal.Transform) {
+//         if im.TreeNodeEx("Transform", {.DefaultOpen, .SpanFullWidth}) {
+//
+//                 // POSITION 
+//                 {
+//                         temp_pos := cal.transform_get_local_position(s, t)
+//                         if im.DragFloat3("Position", &temp_pos, v_speed = 0.1, flags = {}) {
+//                                 cal.transform_set_local_position(s, t, temp_pos)
+//                         }
+//
+//                         if im.IsItemDeactivatedAfterEdit() {
+//                                 log.info("Set local position:", cal.transform_get_name(s, t), ":", temp_pos)
+//                                 cal.scene_set_dirty(s)
+//                                 // TODO: commit to undo history
+//                         }
+//                 }
+//
+//
+//                 // ROTATION - Inspector is in euler degrees
+//                 {
+//                         temp_rot_quat := cal.transform_get_local_rotation(s, t)
+//                         temp_rot_eul : [3]f32
+//                         temp_rot_eul.x, temp_rot_eul.y, temp_rot_eul.z = linalg.euler_angles_from_quaternion_f32(temp_rot_quat, .XYZ) // Euler order might need to change when I decide on forward/up axes
+//                         temp_rot_eul *= linalg.DEG_PER_RAD
+//                         if im.DragFloat3("Rotation", &temp_rot_eul, v_speed = 0.1, flags = {}) {
+//                                 temp_rot_eul *= linalg.RAD_PER_DEG
+//                                 temp_rot_quat = linalg.quaternion_from_euler_angles_f32(expand_values(temp_rot_eul), .XYZ)
+//                                 cal.transform_set_local_rotation(s, t, temp_rot_quat)
+//                         }
+//
+//                         if im.IsItemDeactivatedAfterEdit() {
+//                                 log.info("Set local rotation:", cal.transform_get_name(s, t), ":", temp_rot_eul)
+//                                 cal.scene_set_dirty(s)
+//                                 // TODO: commit to undo history
+//                         }
+//                 }
+//
+//                 // SCALE
+//                 {
+//                         temp_scale := cal.transform_get_local_scale(s, t)
+//                         if im.DragFloat3("Scale", &temp_scale, v_speed = 0.1, flags = {}) {
+//                                 cal.transform_set_local_scale(s, t, temp_scale)
+//                         }
+//
+//                         if im.IsItemDeactivatedAfterEdit() {
+//                                 log.info("Set local scale:", cal.transform_get_name(s, t), ":", temp_scale)
+//                                 cal.scene_set_dirty(s)
+//                                 // TODO: commit to undo history
+//                         }
+//                 }
+//
+//
+//                 im.TreePop()
+//         }
+// }
+
+// ui_inspector_quaternion :: proc(name: string, val: ^quaternion128 /*, undo_history: ^cal.Undo_History */) -> (dirty: bool) {
+// }

@@ -18,12 +18,13 @@ Entity_Flag :: enum {
 
 // This struct is defined per-project
 Entity :: struct {
-        name          : string,
+        using _       : cal.Entity_Base,
         flags         : Entity_Flags,
         position      : [3]f32,
         rotation      : quaternion128,
         scale         : [3]f32,
         mesh_renderer : cal.Mesh_Renderer,
+        test_int : int,
 }
 
 

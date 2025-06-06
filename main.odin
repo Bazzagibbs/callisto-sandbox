@@ -37,6 +37,7 @@ App_Data :: struct {
 
         scene                        : cal.Scene,
         entities                     : [dynamic]Entity,
+        entity_selected              : int,
 
         camera_yaw_pitch             : [2]f32,
         has_camera_control           : bool,
@@ -170,8 +171,9 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         sa.append(&quad_mesh_renderer.materials, &g.material)
 
 
-        a.entities = make([dynamic]Entity, 1024)
+        a.entities = make([dynamic]Entity, 0, 1024)
         append(&a.entities, Entity {
+                name          = "Quad Far",
                 flags         = {.Has_Mesh_Renderer},
                 position      = {0, 0, 30},
                 rotation      = linalg.QUATERNIONF32_IDENTITY,
@@ -180,6 +182,7 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         })
 
         append(&a.entities, Entity {
+                name          = "Quad Near",
                 flags         = {.Has_Mesh_Renderer},
                 position      = {-0.5, 0, 0},
                 rotation      = linalg.QUATERNIONF32_IDENTITY,
