@@ -38,6 +38,10 @@ Graphics_Data :: struct {
         material : cal.Material,
         pipeline : ^sdl.GPUGraphicsPipeline,
 
+
+        gizmo_material : cal.Material,
+        gizmo_pipeline : ^sdl.GPUGraphicsPipeline,
+
         // TEXTURE
         texture        : cal.Texture,
         sampler        : ^sdl.GPUSampler,
@@ -96,130 +100,226 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
 
         cal.resource_upload_begin(&r)       
 
-        mesh_info := cal.Asset_Mesh { submesh_infos = []cal.Submesh_Info{ cal.Submesh_Info{
-                index_data = {
-                        0, 1, 3,
-                        3, 1, 2,
-                },
-                position_data = {
-                        {-0.5, 0.5, 0},
-                        {-0.5, -0.5, 0},
-                        {0.5, -0.5, 0},
-                        {0.5, 0.5, 0},
-                },
-                tex_coord_0_data = {
-                        {0, 0},
-                        {0, 1},
-                        {1, 1},
-                        {1, 0},
-                },
-        }}}
+        // Meshes
+        {
+                mesh_info := cal.Asset_Mesh { submesh_infos = []cal.Submesh_Info{ cal.Submesh_Info{
+                        index_data = {
+                                0, 1, 3,
+                                3, 1, 2,
+                        },
+                        position_data = {
+                                {-0.5, 0.5, 0},
+                                {-0.5, -0.5, 0},
+                                {0.5, -0.5, 0},
+                                {0.5, 0.5, 0},
+                        },
+                        tex_coord_0_data = {
+                                {0, 0},
+                                {0, 1},
+                                {1, 1},
+                                {1, 0},
+                        },
+                }}}
 
-        g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
-        // g.texture, _   = cal.asset_load_texture(&r, "textures/door.cal")
-        g.texture, _   = cal.asset_load_texture(&r, "textures/checkerboard_bw.cal")
-
-        sampler_info := sdl.GPUSamplerCreateInfo {
-                min_filter        = .LINEAR,
-                mag_filter        = .LINEAR,
-                mipmap_mode       = .LINEAR,
-                address_mode_u    = .CLAMP_TO_EDGE,
-                address_mode_v    = .CLAMP_TO_EDGE,
-                address_mode_w    = .CLAMP_TO_EDGE,
-                mip_lod_bias      = 0,
-                max_anisotropy    = 8,
-                min_lod           = 0,
-                max_lod           = max(f32),
-                enable_anisotropy = true,
-                enable_compare    = false,
-
+                g.quad_mesh, _ = cal.mesh_create(&r, &mesh_info)
         }
-        g.sampler = sdl.CreateGPUSampler(device, sampler_info)
-        check_sdl_ptr(g.sampler)
 
-        resolution_x, resolution_y : i32
-        _ = sdl.GetWindowSizeInPixels(window, &resolution_x, &resolution_y)
-        graphics_create_render_targets(g, device, u32(resolution_x), u32(resolution_y))
+
+        // Textures + samplers
+        {
+                // g.texture, _   = cal.asset_load_texture(&r, "textures/door.cal")
+                g.texture, _   = cal.asset_load_texture(&r, "textures/checkerboard_bw.cal")
+
+                sampler_info := sdl.GPUSamplerCreateInfo {
+                        min_filter        = .LINEAR,
+                        mag_filter        = .LINEAR,
+                        mipmap_mode       = .LINEAR,
+                        address_mode_u    = .CLAMP_TO_EDGE,
+                        address_mode_v    = .CLAMP_TO_EDGE,
+                        address_mode_w    = .CLAMP_TO_EDGE,
+                        mip_lod_bias      = 0,
+                        max_anisotropy    = 8,
+                        min_lod           = 0,
+                        max_lod           = max(f32),
+                        enable_anisotropy = true,
+                        enable_compare    = false,
+
+                }
+                g.sampler = sdl.CreateGPUSampler(device, sampler_info)
+                check_sdl_ptr(g.sampler)
+        }
+
+        // Render targets
+        {
+                resolution_x, resolution_y : i32
+                _ = sdl.GetWindowSizeInPixels(window, &resolution_x, &resolution_y)
+                graphics_create_render_targets(g, device, u32(resolution_x), u32(resolution_y))
+        }
 
 
         // Shaders
-        vertex_shader, _ := cal.asset_load_shader(&r, "shaders/shader.vert.cal")
-        defer cal.shader_destroy(device, &vertex_shader)
+        {
+                vertex_shader, _ := cal.asset_load_shader(&r, "shaders/shader.vert.cal")
+                defer cal.shader_destroy(device, &vertex_shader)
 
-        fragment_shader, _ := cal.asset_load_shader(&r, "shaders/shader.frag.cal")
-        defer cal.shader_destroy(device, &fragment_shader)
+                fragment_shader, _ := cal.asset_load_shader(&r, "shaders/shader.frag.cal")
+                defer cal.shader_destroy(device, &fragment_shader)
 
 
-        // Create pipeline
-        // Vertex: two separate vertex buffers, one each for position and uv
-        pipeline_vertex_buffer_descs := []sdl.GPUVertexBufferDescription {
-                {slot = 0, pitch = size_of([3]f32), input_rate = .VERTEX }, // position
-                {slot = 1, pitch = size_of([2]f32), input_rate = .VERTEX }, // tex_coord_0
+                // Create pipeline
+                // Vertex: two separate vertex buffers, one each for position and uv
+                pipeline_vertex_buffer_descs := []sdl.GPUVertexBufferDescription {
+                        {slot = 0, pitch = size_of([3]f32), input_rate = .VERTEX }, // position
+                        {slot = 1, pitch = size_of([2]f32), input_rate = .VERTEX }, // tex_coord_0
+                }
+
+                pipeline_vertex_attributes := []sdl.GPUVertexAttribute {
+                        {location = 0, buffer_slot = 0, format = .FLOAT3, offset = 0}, // position
+                        {location = 1, buffer_slot = 1, format = .FLOAT2, offset = 0}, // tex_coord_0
+                }
+
+                pipeline_blend_state := sdl.GPUColorTargetBlendState {
+                        enable_blend = false,
+                        src_color_blendfactor = .SRC_ALPHA,
+                        dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+                        color_blend_op        = .ADD,
+                        src_alpha_blendfactor = .SRC_ALPHA,
+                        dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
+                        alpha_blend_op        = .ADD,
+                        color_write_mask      = {.R, .G, .B, .A},
+                }
+
+                pipeline_color_targets := []sdl.GPUColorTargetDescription {
+                        {format = sdl.GetGPUSwapchainTextureFormat(device, window), blend_state = pipeline_blend_state}
+                }
+
+                pipeline_info := sdl.GPUGraphicsPipelineCreateInfo {
+                        vertex_shader   = vertex_shader.gpu_shader,
+                        fragment_shader = fragment_shader.gpu_shader,
+                        vertex_input_state =  {
+                                vertex_buffer_descriptions = raw_data(pipeline_vertex_buffer_descs),
+                                num_vertex_buffers         = u32(len(pipeline_vertex_buffer_descs)),
+                                vertex_attributes          = raw_data(pipeline_vertex_attributes),
+                                num_vertex_attributes      = u32(len(pipeline_vertex_attributes)),
+                        },
+                        primitive_type = .TRIANGLELIST,
+                        rasterizer_state = {
+                                fill_mode = .FILL,
+                                cull_mode = .NONE,
+                                // front_face = .CLOCKWISE,
+                                front_face = .COUNTER_CLOCKWISE,
+                        },
+                        multisample_state = {
+                                sample_count = g.msaa_count,
+                        },
+                        depth_stencil_state = {
+                                compare_op         = .GREATER_OR_EQUAL,
+                                enable_depth_test  = true,
+                                enable_depth_write = true,
+                        },
+
+                        target_info = {
+                                color_target_descriptions = raw_data(pipeline_color_targets),
+                                num_color_targets         = u32(len(pipeline_color_targets)),
+                                depth_stencil_format      = g.depth_format,
+                                has_depth_stencil_target  = true,
+                        }
+                        
+                }
+                g.pipeline = sdl.CreateGPUGraphicsPipeline(device, pipeline_info)
+                check_sdl_ptr(g.pipeline)
+
+                g.material = cal.Material {
+                        vertex_input      = {.Position, .Tex_Coord_0},
+                        pipeline          = g.pipeline,
+                        textures_vertex   = {},
+                        textures_fragment = {},
+                }
+                sa.append(&g.material.textures_fragment, g.texture)
         }
 
-        pipeline_vertex_attributes := []sdl.GPUVertexAttribute {
-                {location = 0, buffer_slot = 0, format = .FLOAT3, offset = 0}, // position
-                {location = 1, buffer_slot = 1, format = .FLOAT2, offset = 0}, // tex_coord_0
-        }
+        // Gizmos
+        {
+                gizmo_vertex_shader, _ := cal.asset_load_shader(&r, "shaders/gizmo.vert.cal")
+                defer cal.shader_destroy(device, &gizmo_vertex_shader)
 
-        pipeline_blend_state := sdl.GPUColorTargetBlendState {
-                enable_blend = false,
-                src_color_blendfactor = .SRC_ALPHA,
-                dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
-                color_blend_op        = .ADD,
-                src_alpha_blendfactor = .SRC_ALPHA,
-                dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
-                alpha_blend_op        = .ADD,
-                color_write_mask      = {.R, .G, .B, .A},
-        }
+                gizmo_fragment_shader, _ := cal.asset_load_shader(&r, "shaders/gizmo.frag.cal")
+                defer cal.shader_destroy(device, &gizmo_fragment_shader)
 
-        pipeline_color_targets := []sdl.GPUColorTargetDescription {
-                {format = sdl.GetGPUSwapchainTextureFormat(device, window), blend_state = pipeline_blend_state}
-        }
+                gizmo_vertex_buffer_descs := []sdl.GPUVertexBufferDescription {{
+                        slot       = 0,
+                        pitch      = u32(size_of([3]f32)),
+                        input_rate = .VERTEX,
+                }}
+                gizmo_vertex_attributes := []sdl.GPUVertexAttribute {{
+                        location    = 0,
+                        buffer_slot = 0,
+                        format      = .FLOAT3,
+                        offset      = 0,
+                }}
+                
+                gizmo_vertex_state := sdl.GPUVertexInputState {
+                        vertex_buffer_descriptions = raw_data(gizmo_vertex_buffer_descs),
+                        num_vertex_buffers         = u32(len(gizmo_vertex_buffer_descs)),
+                        vertex_attributes          = raw_data(gizmo_vertex_attributes),
+                        num_vertex_attributes      = u32(len(gizmo_vertex_attributes)),
+                }
 
-        pipeline_info := sdl.GPUGraphicsPipelineCreateInfo {
-                vertex_shader   = vertex_shader.gpu_shader,
-                fragment_shader = fragment_shader.gpu_shader,
-                vertex_input_state =  {
-                        vertex_buffer_descriptions = raw_data(pipeline_vertex_buffer_descs),
-                        num_vertex_buffers         = u32(len(pipeline_vertex_buffer_descs)),
-                        vertex_attributes          = raw_data(pipeline_vertex_attributes),
-                        num_vertex_attributes      = u32(len(pipeline_vertex_attributes)),
-                },
-                primitive_type = .TRIANGLELIST,
-                rasterizer_state = {
-                        fill_mode = .FILL,
-                        cull_mode = .NONE,
-                        // front_face = .CLOCKWISE,
-                        front_face = .COUNTER_CLOCKWISE,
-                },
-                multisample_state = {
-                        sample_count = g.msaa_count,
-                },
-                depth_stencil_state = {
-                        compare_op         = .GREATER_OR_EQUAL,
-                        enable_depth_test  = true,
-                        enable_depth_write = true,
-                },
+                gizmo_ds_state := sdl.GPUDepthStencilState {
+                        compare_op          = .GREATER_OR_EQUAL,
+                        enable_depth_test   = true,
+                        enable_depth_write  = true,
+                        enable_stencil_test = false,
+                }
 
-                target_info = {
-                        color_target_descriptions = raw_data(pipeline_color_targets),
-                        num_color_targets         = u32(len(pipeline_color_targets)),
+                gizmo_rasterizer_state := sdl.GPURasterizerState {
+                        fill_mode         = .LINE,
+                        cull_mode         = .NONE,
+                        enable_depth_bias = false,
+                        enable_depth_clip = true,
+                }
+
+                gizmo_blend_state := sdl.GPUColorTargetBlendState {
+                        enable_blend = false,
+                        src_color_blendfactor = .SRC_ALPHA,
+                        dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+                        color_blend_op        = .ADD,
+                        src_alpha_blendfactor = .SRC_ALPHA,
+                        dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
+                        alpha_blend_op        = .ADD,
+                        color_write_mask      = {.R, .G, .B, .A},
+                }
+
+                gizmo_color_targets := []sdl.GPUColorTargetDescription {{
+                        format      = sdl.GetGPUSwapchainTextureFormat(device, window),
+                        blend_state = gizmo_blend_state,
+                }}
+                gizmo_target_info := sdl.GPUGraphicsPipelineTargetInfo {
+                        color_target_descriptions = raw_data(gizmo_color_targets),
+                        num_color_targets         = u32(len(gizmo_color_targets)),
                         depth_stencil_format      = g.depth_format,
                         has_depth_stencil_target  = true,
                 }
-                
-        }
-        g.pipeline = sdl.CreateGPUGraphicsPipeline(device, pipeline_info)
-        check_sdl_ptr(g.pipeline)
 
-        g.material = cal.Material {
-                vertex_input      = {.Position, .Tex_Coord_0},
-                pipeline          = g.pipeline,
-                textures_vertex   = {},
-                textures_fragment = {},
+                gizmo_pipeline_info := sdl.GPUGraphicsPipelineCreateInfo {
+                        vertex_shader       = gizmo_vertex_shader.gpu_shader,
+                        fragment_shader     = gizmo_fragment_shader.gpu_shader,
+                        vertex_input_state  = gizmo_vertex_state,
+                        primitive_type      = .LINESTRIP,
+                        rasterizer_state    = gizmo_rasterizer_state,
+                        multisample_state   = {sample_count=._1},
+                        depth_stencil_state = gizmo_ds_state,
+                        target_info         = gizmo_target_info,
+                }
+                g.gizmo_pipeline = sdl.CreateGPUGraphicsPipeline(device, gizmo_pipeline_info)
+                check_sdl_ptr(g.gizmo_pipeline)
+
+                g.gizmo_material = cal.Material {
+                        vertex_input = {.Position},
+                        pipeline     = g.gizmo_pipeline,
+                }
         }
-        sa.append(&g.material.textures_fragment, g.texture)
+
 
 
         cal.resource_upload_end_wait(&r)
@@ -355,9 +455,13 @@ graphics_draw :: proc(g: ^Graphics_Data, entities: [dynamic]Entity, cb: ^sdl.GPU
 
         for &e in entities {
                 if .Has_Mesh_Renderer in e.flags {
-                        cal.mesh_render_trs(mb, &e.mesh_renderer, e.position, e.rotation, e.scale)
+                        cal.mesh_render_trs(mb, &e.mesh_renderer, e.position, e.rotation.quaternion, e.scale)
                 }
         }
+
+
+        // gizmo_set_color(mb, {0, 0, 1})
+        // gizmo_draw_ray(mb, {0, 0, 3}, {0, 1, 1})
 
         cal.mesh_render_end(mb)
 }
@@ -369,12 +473,26 @@ graphics_pass_begin :: proc(cb: ^sdl.GPUCommandBuffer, camera: ^cal.Camera) {
         // sdl.PushGPUVertexUniformData(cb, 0, &uniform_data, size_of(uniform_data))
 }
 
-// graphics_draw_meshes :: proc(cb: ^sdl.GPUCommandBuffer, mesh_renderers: []cal.Mesh_Render_Info) {
-        // Push material constants to slot 1
-        // Push mesh constants to slot 2
-        // sdl.PushGPUVertexUniformData(cb, 2, )
-        // mesh_data := linalg.matrix4_from_trs_f32()
-// }
 
 graphics_pass_end :: proc() {
 }
+
+
+// gizmo_set_color :: proc(mb: ^cal.Mesh_Render_Command_Buffer, color: [3]f32) {
+// }
+//
+// gizmo_draw_line :: proc(mb: ^cal.Mesh_Render_Command_Buffer, a, b: [3]f32) {
+//
+// }
+//
+// gizmo_draw_ray :: proc(mb: ^cal.Mesh_Render_Command_Buffer, origin, direction: [3]f32, length: f32 = 1) {
+//         gizmo_draw_line(mb, origin, origin + linalg.normalize0(direction) * length)
+// }
+
+
+// gizmo_draw_wire_sphere :: proc(mb: ^cal.Mesh_Render_Command_Buffer, origin: [3]f32, radius: f32) {
+// }
+//
+// gizmo_draw_wire_capsule :: proc(mb: ^cal.Mesh_Render_Command_Buffer, centre: [3]f32, radius, height: f32) { 
+// }
+

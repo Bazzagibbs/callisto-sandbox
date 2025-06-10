@@ -65,6 +65,8 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
         a : ^App_Data = cast(^App_Data)(app_data^)
         u := &a.ui_data
         g := &a.graphics_data
+
+        a.entity_selected = -1
        
 
         subsystems := sdl.InitFlags {
@@ -173,22 +175,23 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
 
         a.entities = make([dynamic]Entity, 0, 1024)
         append(&a.entities, Entity {
-                name          = "Quad Far",
+                name          = "Quad Near",
                 flags         = {.Has_Mesh_Renderer},
-                position      = {0, 0, 30},
-                rotation      = linalg.QUATERNIONF32_IDENTITY,
+                position      = {-0.5, 0, 0},
+                rotation      = cal.ROTATION_IDENTITY,
                 scale         = {1, 1, 1},
                 mesh_renderer = quad_mesh_renderer,
         })
 
         append(&a.entities, Entity {
-                name          = "Quad Near",
+                name          = "Quad Far",
                 flags         = {.Has_Mesh_Renderer},
-                position      = {-0.5, 0, 0},
-                rotation      = linalg.QUATERNIONF32_IDENTITY,
+                position      = {0, 0, 30},
+                rotation      = cal.ROTATION_IDENTITY,
                 scale         = {1, 1, 1},
                 mesh_renderer = quad_mesh_renderer,
         })
+
         return .CONTINUE
 }
 
@@ -329,8 +332,6 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
 
         a.time_accumulated += a.delta
 
-        a.entities[1].position.x = 1
-
         if a.has_camera_control {
                 CAMERA_SPEED :: 4
                 CAMERA_SPEED_BOOST :: 30
@@ -413,5 +414,6 @@ callisto_loop :: proc(app_data: rawptr) -> sdl.AppResult {
         a.mouse_delta = {0, 0}
 
 
+        free_all(context.temp_allocator)
         return .CONTINUE
 }
