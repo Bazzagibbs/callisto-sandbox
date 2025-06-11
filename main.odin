@@ -75,11 +75,10 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
                 // .AUDIO,
         }
 
-        ok := sdl.Init(subsystems)
-        assert_sdl(ok)
+        check_sdl(sdl.Init(subsystems))
 
-        sdl.SetHint(sdl.HINT_GPU_DRIVER, "vulkan")
-        sdl.SetHint(sdl.HINT_MAIN_CALLBACK_RATE, "waitevent")
+        check_sdl(sdl.SetHint(sdl.HINT_GPU_DRIVER, "vulkan"))
+        check_sdl(sdl.SetHint(sdl.HINT_MAIN_CALLBACK_RATE, "waitevent"))
 
 
         // WINDOW
@@ -87,27 +86,22 @@ callisto_init :: proc(app_data: ^rawptr) -> sdl.AppResult {
                 .HIGH_PIXEL_DENSITY,
                 .RESIZABLE,
         }
-        a.window = sdl.CreateWindow("Hello, World", 1920, 1080, window_flags)
-        assert_sdl(a.window)
+        a.window = check_sdl(sdl.CreateWindow("Hello, World", 1920, 1080, window_flags))
 
 
         // GPU
-        a.device = sdl.CreateGPUDevice({.SPIRV, .MSL, .DXIL}, ODIN_DEBUG, "")
-        assert_sdl(a.device)
+        a.device = check_sdl(sdl.CreateGPUDevice({.SPIRV, .MSL, .DXIL}, ODIN_DEBUG, ""))
 
-        ok = sdl.ClaimWindowForGPUDevice(a.device, a.window)
-        assert_sdl(ok)
+        check_sdl(sdl.ClaimWindowForGPUDevice(a.device, a.window))
 
-        ok = sdl.SetGPUSwapchainParameters(a.device, a.window, .SDR, .MAILBOX)
-        assert_sdl(ok)
+        check_sdl(sdl.SetGPUSwapchainParameters(a.device, a.window, .SDR, .MAILBOX))
 
 
         graphics_init(&a.graphics_data, a.device, a.window)
 
         
         // UI
-        a.ui_context, ok = ui_init(u, a.device, a.window)
-        assert(ok)
+        a.ui_context, _ = ui_init(u, a.device, a.window)
 
         // TIME
         a.tick_begin = time.tick_now()

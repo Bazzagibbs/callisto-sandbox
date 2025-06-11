@@ -10,6 +10,7 @@ import "core:math/linalg"
 import "core:fmt"
 import "core:strconv"
 import "core:mem"
+import "core:c"
 
 import sdl "vendor:sdl3"
 import sa "core:container/small_array"
@@ -37,6 +38,7 @@ UI_Window :: enum {
         Hierarchy,
         Inspector,
         Scene,
+        Dear_Imgui_Demo,
 }
 
 UI_Window_State :: struct {
@@ -63,7 +65,10 @@ UI_Data :: struct {
         scene_view_texture     : ^sdl.GPUTexture, // < Not owned by this struct
         scene_view_textureid   : sdl.GPUTextureSamplerBinding,
         event_counter          : int,
+
+        content_browser_state : UI_Content_Browser_State,
 }
+
 
 
 UI_Field_Flags :: bit_set[UI_Field_Flag]
@@ -105,11 +110,13 @@ UI_Reset_Action :: enum {
 }
 
 ui_reset_button :: proc(tags: UI_Field_Tags, allowed_values: UI_Field_Reset_Values = {.zero}) -> (action: UI_Reset_Action) {
+        // FIXME: Make a reset_any?
+        // TODO: Align the reset button to the rhs of the window
         if tags.reset == .none || tags.reset not_in allowed_values || .read_only in tags.flags {
                 return .None
         }
-        im.SameLine()
-        if im.SmallButton(":") {
+        im.SameLine(im.GetWindowWidth() - 20)
+        if im.Button(":") {
                 im.OpenPopup("reset menu")
         }
 
@@ -192,6 +199,8 @@ ui_init :: proc(u: ^UI_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ct
         for &window_state in u.window_states {
                 window_state.open = true
         }
+
+        ui_content_browser_init(&u.content_browser_state)
         
         im.CHECKVERSION()
 
@@ -207,7 +216,7 @@ ui_init :: proc(u: ^UI_Data, device: ^sdl.GPUDevice, window: ^sdl.Window) -> (ct
 
         im.StyleColorsDark()
 
-        ok = im_sdl.InitForSDLGPU(window)
+        check_sdl(im_sdl.InitForSDLGPU(window))
         
         init_info := im_sdlgpu.InitInfo {
                 Device            = device,
@@ -301,6 +310,7 @@ ui_end :: proc(u: ^UI_Data, cb: ^sdl.GPUCommandBuffer, render_target: ^sdl.GPUTe
 
 
 ui_destroy :: proc(u: ^UI_Data, ctx: ^im.Context) {
+        ui_content_browser_destroy(&u.content_browser_state)
         sdl.ReleaseGPUSampler(u.device, u.sampler)
         im_sdl.Shutdown()
         im_sdlgpu.Shutdown()
@@ -357,6 +367,16 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
 
         open : ^bool
 
+        // Content browser
+        open = &u.window_states[.Content].open
+        if open^ {
+                if im.Begin("Content", open) {
+                        ui_draw_content_browser(&u.content_browser_state)
+                }
+                im.End()
+
+        }
+
         // Hierarchy
         open = &u.window_states[.Hierarchy].open
         if open^ {
@@ -366,7 +386,6 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
                 }
 
                 if im.Begin("Hierarchy", open, hierarchy_window_flags) {
-                        // ui_draw_scene_hierarchy(&a.scene)
                         ui_draw_entities(&a.entities, &a.entity_selected)
                 }
                 im.End()
@@ -415,8 +434,8 @@ ui_draw :: proc(a: ^App_Data, u: ^UI_Data) {
         }
 
 
-        // Content Browser
-        open = &u.window_states[.Content].open
+        // Demo window
+        open = &u.window_states[.Dear_Imgui_Demo].open
         if open^ {
                 im.ShowDemoWindow(open)
         }
@@ -450,6 +469,7 @@ ui_draw_entities :: proc(entities: ^$T/[dynamic]$E, selected_id: ^int) where int
                 
         }
 }
+
 
 ui_draw_inspector :: proc(entities: ^$T/[dynamic]$E, selected_id: ^int) where intrinsics.type_is_subtype_of(E, cal.Entity_Base) {
         if selected_id^ <= -1 {
@@ -978,20 +998,23 @@ ui_draw_any :: proc(field_label: union{string, int}, val: any, tags: UI_Field_Ta
 
 // TODO: This needs to be changed. Why is editing rotations so hard :( just understand quaternions people :(
 // - The quat->euler->quat conversion does not preserve user intention
-// - Storing euler->quat is better but there are issues with rotation order
-// - Maybe only support incremental editing like blender? r x 90, r y 90
+// - Storing euler->quat is better but requires additional state
 ui_inspector_rotation :: proc(name: string, val: any, tags: UI_Field_Tags) -> (changed: bool) {
         rotation := (^cal.Rotation)(val.data)
        
         if im.DragFloat3(strings.unsafe_string_to_cstring(name), &rotation._degrees_editor, v_speed = 0.1) {
                 rotation.quaternion = linalg.quaternion_from_euler_angles_f32(expand_values(rotation._degrees_editor * linalg.RAD_PER_DEG), .XYZ)
-                return true
         }
 
         // Figure this out
         if im.IsItemDeactivatedAfterEdit() {
-                return true
                 // TODO: commit to undo history
+        }
+
+        reset_action := ui_reset_button(tags, {.zero, .identity}) 
+        if reset_action == .Reset {
+                rotation.quaternion      = linalg.QUATERNIONF32_IDENTITY
+                rotation._degrees_editor = {}
         }
 
 
@@ -1005,13 +1028,22 @@ ui_inspector_small_array :: proc(name: string, val: any, tags: UI_Field_Tags) ->
         // Small_Array is a fixed-size array: [N]E. Need to get the element type.
         ti_data := ti.types[0].variant.(runtime.Type_Info_Array)
         len := (^int)(uintptr(val.data) + ti.offsets[1])
-        
-        min := 0
-        cap := ti_data.count
+       
+        min_cap := 0
+        min_cap_override, has_min := tags.min.(int)
+        if has_min {
+                min_cap = max(min_cap, min_cap_override)
+        }
+
+        max_cap := ti_data.count
+        max_cap_override, has_max := tags.max.(int)
+        if has_max {
+                max_cap = min(max_cap, max_cap_override)
+        }
 
         if im.BeginListBox(strings.unsafe_string_to_cstring(name)) {
                 im.BeginDisabled(.no_resize in tags.flags)
-                im.DragScalar("len", .S64, len, p_min = &min, p_max = &cap, flags = {.ClampOnInput})
+                im.DragScalar("len", .S64, len, p_min = &min_cap, p_max = &max_cap, flags = {.ClampOnInput})
                 im.EndDisabled()
 
                 for i in 0..<len^ {
@@ -1025,6 +1057,7 @@ ui_inspector_small_array :: proc(name: string, val: any, tags: UI_Field_Tags) ->
                 }
                 im.EndListBox()
         }
+
         return false
 }
 
@@ -1033,9 +1066,6 @@ ui_inspector_none :: proc(name: string, val: any, tags: UI_Field_Tags) -> (chang
         return false
 }
 
-
-ui_content_browser :: proc(u: ^UI_Data) {
-}
 
 
 @(init)

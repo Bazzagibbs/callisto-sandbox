@@ -17,15 +17,6 @@ import "core:math"
 import cal "callisto"
 import "callisto/editor/ufbx"
 
-check_sdl_ptr :: proc(ptr: rawptr, exp := #caller_expression(ptr), loc := #caller_location) -> bool {
-        if ptr != nil {
-                return true
-        }
-
-        log.error(exp, "== nil", "->", sdl.GetError())
-        return false
-}
-
 
 Graphics_Data :: struct {
         device: ^sdl.GPUDevice, // NOTE: not owned by this struct
@@ -145,8 +136,7 @@ graphics_init :: proc(g: ^Graphics_Data, device: ^sdl.GPUDevice, window: ^sdl.Wi
                         enable_compare    = false,
 
                 }
-                g.sampler = sdl.CreateGPUSampler(device, sampler_info)
-                check_sdl_ptr(g.sampler)
+                g.sampler = check_sdl(sdl.CreateGPUSampler(device, sampler_info))
         }
 
         // Render targets

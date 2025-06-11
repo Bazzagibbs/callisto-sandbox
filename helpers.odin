@@ -1,42 +1,90 @@
 package callisto_sandbox
 
+import "base:runtime"
+import "base:intrinsics"
 import "core:log"
 import sdl "vendor:sdl3"
 import "core:fmt"
 import "core:math"
+import "callisto/config"
 
 
-assert_sdl :: proc {
-        assert_sdl_bool,
-        assert_sdl_ptr,
+// For SDL types, use `check_sdl()` instead for descriptive error messages.
+check :: proc {
+        check_ok,
+        check_ptr,
+        check_err,
 }
 
-assert_sdl_bool :: proc(assertion: bool, message: string = "", expr := #caller_expression(assertion), location := #caller_location) {
-        when !ODIN_DISABLE_ASSERT {
-                if !assertion {
-                        log.fatal(sdl.GetError(), location = location)
-                        if message == "" {
-                                panic(expr, location)
-                        } else {
-                                panic(message, location)
-                        }
-                }
+check_ok :: proc (val: bool, loc := #caller_location, expr := #caller_expression) -> (ok: bool) {
+        if val {
+                return true
         }
-}
 
-
-assert_sdl_ptr :: proc(ptr: rawptr, message: string = "", expr := #caller_expression(ptr), location := #caller_location) {
-        when !ODIN_DISABLE_ASSERT {
-                if ptr == nil {
-                        log.fatal(sdl.GetError(), location = location)
-                        if message == "" {
-                                panic(fmt.tprint(expr, "is nil"), location)
-                        } else {
-                                panic(message, location)
-                        }
-                }
+        log.error(expr, location = loc)
+        when config.BREAKPOINT_ON_CHECK {
+                runtime.debug_trap()
         }
+        return false
 }
+
+// For SDL pointers, use `check_sdl()` instead for descriptive error messages.
+check_ptr :: proc (val: ^$T, loc := #caller_location, expr := #caller_expression) -> (ptr: ^T, ok: bool) #optional_ok {
+        if val != nil {
+                return val, true
+        }
+
+        log.error(expr, location = loc)
+        when config.BREAKPOINT_ON_CHECK {
+                runtime.debug_trap()
+        }
+        return nil, false
+}
+
+check_err :: proc(val: $T, loc := #caller_location, expr := #caller_expression) -> (ok: bool) where intrinsics.type_is_enum(T) || intrinsics.type_is_union(T) {
+        if val == {} {
+                return true
+        }
+
+        log.error("%v -> %v", expr, val, location = loc)
+        when config.BREAKPOINT_ON_CHECK {
+                runtime.debug_trap()
+        }
+        return false
+}
+
+check_sdl :: proc {
+        check_sdl_ok,
+        check_sdl_ptr,
+}
+
+check_sdl_ok :: proc (val: bool, loc := #caller_location, expr := #caller_expression) -> (ok: bool) { 
+        if val {
+                return true
+        }
+
+        log.errorf("%v: %v", expr, sdl.GetError(), location = loc)
+        when config.BREAKPOINT_ON_CHECK {
+                runtime.debug_trap()
+        }
+        return false
+
+}
+
+check_sdl_ptr :: proc (val: ^$T, loc := #caller_location, expr := #caller_expression) -> (ptr: ^T, ok: bool) #optional_ok { 
+        if val != nil {
+                return val, true
+        }
+
+        log.errorf("%v: %v", expr, sdl.GetError(), location = loc)
+        when config.BREAKPOINT_ON_CHECK {
+                runtime.debug_trap()
+        }
+        return nil, false
+}
+
+
+
 
 quaternion_from_yaw_pitch_f32 :: proc "contextless" (yaw, pitch: f32) -> quaternion128 {
 	a, b := yaw, pitch
